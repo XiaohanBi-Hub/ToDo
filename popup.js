@@ -1,14 +1,12 @@
 // Initialize
 let todos = [];
 let archivedTodos = [];
-let currentFilter = 'active';
 
 // DOM elements
 const todoInput = document.getElementById('todoInput');
 const addBtn = document.getElementById('addBtn');
 const todoList = document.getElementById('todoList');
 const emptyState = document.getElementById('emptyState');
-const filterButtons = document.querySelectorAll('.filter-btn');
 const exportBtn = document.getElementById('exportBtn');
 const importBtn = document.getElementById('importBtn');
 const newDayBtn = document.getElementById('newDayBtn');
@@ -168,16 +166,9 @@ function addSubtask(parentId, text) {
   }
 }
 
-// Get filtered todos
+// Get filtered todos (now returns all todos)
 function getFilteredTodos() {
-  switch (currentFilter) {
-    case 'active':
-      return todos.filter(t => !t.completed);
-    case 'completed':
-      return todos.filter(t => t.completed);
-    default:
-      return todos.filter(t => !t.completed);
-  }
+  return todos;
 }
 
 // Render todos list
@@ -389,16 +380,8 @@ function showAddSubtaskInput(parentLi, parentId) {
   }
 }
 
-// Set filter
+// Set filter (no longer needed, but kept for compatibility)
 function setFilter(filter) {
-  currentFilter = filter;
-  filterButtons.forEach(btn => {
-    if (btn.dataset.filter === filter) {
-      btn.classList.add('active');
-    } else {
-      btn.classList.remove('active');
-    }
-  });
   renderTodos();
 }
 
@@ -411,11 +394,7 @@ todoInput.addEventListener('keypress', (e) => {
   }
 });
 
-filterButtons.forEach(btn => {
-  btn.addEventListener('click', () => {
-    setFilter(btn.dataset.filter);
-  });
-});
+// Filter buttons removed - all todos are shown together
 
 exportBtn.addEventListener('click', (e) => {
   e.stopPropagation();
@@ -523,9 +502,6 @@ function startNewDay() {
   
   // Save to storage
   saveTodos();
-  
-  // Reset filter to 'all'
-  setFilter('all');
 }
 
 // Dropdown menu functions

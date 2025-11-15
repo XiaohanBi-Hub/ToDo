@@ -30,13 +30,36 @@ if errorlevel 1 (
     exit /b 1
 )
 
-
-REM 推送到远程仓库
+REM 推送到远程仓库（带重试机制）
 echo 推送到远程仓库...
+set RETRY_COUNT=0
+set MAX_RETRIES=3
+
+:push_retry
 git push
 if errorlevel 1 (
-    echo 推送失败！
-    exit /b 1
+    set /a RETRY_COUNT+=1
+    if %RETRY_COUNT% LSS %MAX_RETRIES% (
+        echo 推送失败，正在重试 (%RETRY_COUNT%/%MAX_RETRIES%)...
+        timeout /t 3 /nobreak >nul
+        goto push_retry
+    ) else (
+        echo.
+        echo ========================================
+        echo 推送失败！可能的原因：
+        echo 1. 网络连接问题 - 请检查网络连接
+        echo 2. 防火墙/代理设置 - 可能需要配置 Git 代理
+        echo 3. GitHub 服务暂时不可用
+        echo.
+        echo 解决方案：
+        echo - 检查网络连接
+        echo - 如果使用代理，配置 Git 代理：
+        echo   git config --global http.proxy http://代理地址:端口
+        echo - 或尝试使用 SSH 方式：
+        echo   git remote set-url origin git@github.com:XiaohanBi-Hub/ToDo.git
+        echo ========================================
+        exit /b 1
+    )
 )
 
 echo ✓ 推送完成！

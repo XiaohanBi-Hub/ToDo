@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Todo List by xh",
-  "version": "1.0.4",
+  "name": "今天你干完活了吗",
+  "version": "1.1.0",
   "description": "A clean and beautiful todo management tool by xh",
   "action": {
     "default_popup": "popup.html"

@@ -17,6 +17,7 @@ body {
   min-height: 500px;
   display: flex;
   flex-direction: column;
+  overflow: visible;
 }
 
 .header {
@@ -63,6 +64,8 @@ body {
   display: flex;
   gap: 8px;
   border-bottom: 1px solid #f0f0f0;
+  overflow: visible;
+  position: relative;
 }
 
 .todo-input {
@@ -81,8 +84,8 @@ body {
 }
 
 .add-btn {
-  padding: 8px 16px;
-  background: #333;
+  padding: 8px;
+  background: transparent;
   color: white;
   border: none;
   border-radius: 6px;
@@ -91,14 +94,31 @@ body {
   cursor: pointer;
   transition: background-color 0.2s ease;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 40px;
+  margin-right: 4px;
+}
+
+.add-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+  transition: transform 0.3s ease;
 }
 
 .add-btn:hover {
-  background: #555;
+  background: transparent;
+}
+
+.add-btn:hover .add-icon {
+  transform: rotate(90deg);
 }
 
 .add-btn:active {
-  background: #222;
+  background: transparent;
 }
 
 .filter-section {
@@ -146,15 +166,49 @@ body {
 
 .new-day-btn {
   white-space: nowrap;
-  flex: 1;
+  padding: 6px;
+  border-radius: 16px;
+  font-size: 12px;
+  background: transparent;
+  color: rgb(27, 24, 24);
+  border-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 48px;
+}
+
+.sun-icon {
+  width: 36px;
+  height: 36px;
+  display: block;
+  transition: transform 0.3s ease;
 }
 
 .menu-btn {
-  min-width: 36px;
-  padding: 6px 10px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
   font-size: 18px;
   line-height: 1;
   flex-shrink: 0;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+  transition: transform 0.3s ease;
+}
+
+.menu-btn:hover .menu-icon {
+  transform: scale(1.2);
 }
 
 .action-btn:hover {
@@ -174,37 +228,34 @@ body {
   color: #4caf50;
 }
 
-.new-day-btn {
-  background: #ff9800;
-  color: white;
-  border-color: #ff9800;
-  font-weight: 600;
+.new-day-btn:hover {
+  background: transparent;
+  border-color: transparent;
 }
 
-.new-day-btn:hover {
-  background: #fb8c00;
-  border-color: #fb8c00;
-  color: white;
+.new-day-btn:hover .sun-icon {
+  transform: rotate(180deg) scale(10);
+  cursor: pointer;
 }
 
 .menu-btn:hover {
-  background: #f5f5f5;
-  border-color: #ccc;
+  background: transparent;
+  border: none;
 }
 
 /* Dropdown menu */
 .dropdown {
   position: relative;
+  margin-left: -4px;
 }
 
 .dropdown-menu {
   display: none;
   position: absolute;
-  top: 100%;
+  top: calc(100% + 4px);
   right: 0;
-  margin-top: 4px;
   background: white;
-  border: 1px solid #e0e0e0;
+  border: none;
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   min-width: 140px;

@@ -16,6 +16,9 @@
         <h1 class="title">今天你干完活了吗</h1>
         <div class="by-author">by xh</div>
       </div>
+      <button id="newDayBtn" class="action-btn new-day-btn">
+        <img src="icon/sun.png" alt="New Day" class="sun-icon">
+      </button>
     </header>
     
     <div class="input-section">
@@ -26,13 +29,13 @@
         placeholder="Add a new todo..."
         autocomplete="off"
       >
-      <button id="addBtn" class="add-btn">Add</button>
-    </div>
-    
-    <div class="filter-section">
-      <button id="newDayBtn" class="action-btn new-day-btn">New Day</button>
+      <button id="addBtn" class="add-btn">
+        <img src="icon/add.png" alt="Add" class="add-icon">
+      </button>
       <div class="dropdown">
-        <button id="menuBtn" class="action-btn menu-btn">⋮</button>
+        <button id="menuBtn" class="action-btn menu-btn">
+          <img src="icon/menu.png" alt="Menu" class="menu-icon">
+        </button>
         <div id="dropdownMenu" class="dropdown-menu">
           <button id="historyBtn" class="dropdown-item">History</button>
           <button id="exportBtn" class="dropdown-item">Export</button>

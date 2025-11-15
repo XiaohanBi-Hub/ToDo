@@ -29,7 +29,6 @@ if errorlevel 1 (
     echo 提交失败！
     exit /b 1
 )
-
 REM 推送到远程仓库
 echo 推送到远程仓库...
 git push

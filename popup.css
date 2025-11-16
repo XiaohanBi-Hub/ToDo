@@ -9,7 +9,7 @@ body {
   width: 380px;
   min-height: 500px;
   background: #f5f5f5;
-  color: #333;
+  color: #555;
 }
 
 .container {
@@ -22,16 +22,16 @@ body {
 }
 
 .header {
-  padding: 26.62px 16px;
+  padding: 30.61px 16px;
   background: #ffffff;
-  color: #333;
+  color: #555;
   display: flex;
   justify-content: flex-end;
   align-items: center;
   border-bottom: 1px solid #e0e0e0;
   position: relative;
   overflow: hidden;
-  min-height: 80px;
+  min-height: 92px;
 }
 
 .header::before {
@@ -204,7 +204,7 @@ body {
   font-size: 14px;
   line-height: 1;
   background: transparent;
-  color: rgb(27, 24, 24);
+  color: #555;
   border-color: transparent;
   display: flex;
   align-items: center;
@@ -313,7 +313,7 @@ body {
   font-size: 13px;
   cursor: pointer;
   transition: background-color 0.2s ease;
-  color: #333;
+  color: #555;
 }
 
 .dropdown-item:hover {
@@ -364,7 +364,7 @@ body {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: #555;
 }
 
 .modal-header-actions {
@@ -388,7 +388,7 @@ body {
 .clear-btn:hover:not(:disabled) {
   background: #f5f5f5;
   border-color: #999;
-  color: #333;
+  color: #555;
 }
 
 .clear-btn:disabled {
@@ -414,7 +414,7 @@ body {
 
 .close-btn:hover {
   background: #f5f5f5;
-  color: #333;
+  color: #555;
 }
 
 .modal-body {
@@ -470,7 +470,7 @@ body {
 .history-todo-text {
   flex: 1;
   font-size: 13px;
-  color: #333;
+  color: #555;
   word-break: break-word;
 }
 
@@ -625,7 +625,7 @@ body {
 .todo-text {
   flex: 1;
   font-size: 13px;
-  color: #333;
+  color: #555;
   word-break: break-word;
   line-height: 1.4;
   cursor: text;
@@ -666,7 +666,7 @@ body {
 }
 
 .expand-btn:hover {
-  color: #333;
+  color: #555;
 }
 
 .expand-btn.expanded {
@@ -814,7 +814,7 @@ body {
 .settings-title {
   font-size: 13px;
   font-weight: 600;
-  color: #333;
+  color: #555;
   margin-bottom: 12px;
 }
 

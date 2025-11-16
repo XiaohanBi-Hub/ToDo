@@ -4,7 +4,6 @@ let archivedTodos = [];
 
 // DOM elements
 const todoInput = document.getElementById('todoInput');
-const addBtn = document.getElementById('addBtn');
 const todoList = document.getElementById('todoList');
 const emptyState = document.getElementById('emptyState');
 const exportBtn = document.getElementById('exportBtn');
@@ -15,11 +14,16 @@ const dropdownMenu = document.getElementById('dropdownMenu');
 const historyBtn = document.getElementById('historyBtn');
 const historyModal = document.getElementById('historyModal');
 const closeModalBtn = document.getElementById('closeModalBtn');
+const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 const historyContent = document.getElementById('historyContent');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
+const backgroundColorPicker = document.getElementById('backgroundColorPicker');
 
 // Load todos from storage
 function loadTodos() {
-  chrome.storage.sync.get(['todos', 'archivedTodos'], (result) => {
+  chrome.storage.sync.get(['todos', 'archivedTodos', 'backgroundColor'], (result) => {
     todos = (result.todos || []).map(todo => ({
       ...todo,
       subtasks: todo.subtasks || [],
@@ -27,6 +31,29 @@ function loadTodos() {
     }));
     archivedTodos = result.archivedTodos || [];
     renderTodos();
+    
+    // Load and apply background color
+    const bgColor = result.backgroundColor || '#f5f5f5';
+    applyBackgroundColor(bgColor);
+    if (backgroundColorPicker) {
+      backgroundColorPicker.value = bgColor;
+    }
+  });
+}
+
+// Apply background color to body and container
+function applyBackgroundColor(color) {
+  document.body.style.backgroundColor = color;
+  const container = document.querySelector('.container');
+  if (container) {
+    container.style.backgroundColor = color;
+  }
+}
+
+// Save background color to storage
+function saveBackgroundColor(color) {
+  chrome.storage.sync.set({ backgroundColor: color }, () => {
+    applyBackgroundColor(color);
   });
 }
 
@@ -196,6 +223,115 @@ function renderTodoItem(todo, isSubtask = false) {
   li.className = `todo-item ${todo.completed ? 'completed' : ''} ${isSubtask ? 'subtask' : ''}`;
   li.dataset.id = todo.id;
   
+  // Add drag functionality for main todos only (not subtasks)
+  if (!isSubtask) {
+    li.draggable = true;
+    li.classList.add('draggable');
+    
+    // Prevent drag when clicking on interactive elements
+    li.addEventListener('mousedown', (e) => {
+      // Disable drag if clicking on interactive elements
+      if (e.target.tagName === 'BUTTON' || 
+          e.target.tagName === 'INPUT' || 
+          e.target.closest('.todo-actions') ||
+          e.target.closest('.todo-checkbox') ||
+          e.target.closest('.expand-btn')) {
+        li.draggable = false;
+        return;
+      }
+      // Enable drag for the entire item
+      li.draggable = true;
+    });
+    
+    li.addEventListener('dragstart', (e) => {
+      // Only start drag if not clicking on interactive elements
+      if (e.target.tagName === 'BUTTON' || 
+          e.target.tagName === 'INPUT' || 
+          e.target.closest('.todo-actions') ||
+          e.target.closest('.todo-checkbox') ||
+          e.target.closest('.expand-btn')) {
+        e.preventDefault();
+        return;
+      }
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', todo.id.toString());
+      li.classList.add('dragging');
+    });
+    
+    li.addEventListener('dragend', (e) => {
+      li.classList.remove('dragging');
+      // Remove all drag-over classes
+      document.querySelectorAll('.todo-item.drag-over').forEach(item => {
+        item.classList.remove('drag-over');
+      });
+    });
+    
+    li.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      
+      const draggingItem = document.querySelector('.todo-item.dragging');
+      if (!draggingItem || draggingItem === li) return;
+      
+      // Remove drag-over from all items
+      document.querySelectorAll('.todo-item.drag-over').forEach(item => {
+        item.classList.remove('drag-over');
+      });
+      
+      // Only add drag-over to main todos (not subtasks)
+      if (!li.classList.contains('subtask')) {
+        const rect = li.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        
+        if (e.clientY < midY) {
+          li.classList.add('drag-over-top');
+        } else {
+          li.classList.add('drag-over-bottom');
+        }
+      }
+    });
+    
+    li.addEventListener('dragleave', (e) => {
+      li.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+    
+    li.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      li.classList.remove('drag-over-top', 'drag-over-bottom');
+      
+      const draggedId = parseInt(e.dataTransfer.getData('text/plain'));
+      const draggedIndex = todos.findIndex(t => t.id === draggedId);
+      const targetIndex = todos.findIndex(t => t.id === todo.id);
+      
+      if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) {
+        return;
+      }
+      
+      // Calculate insert position based on mouse position
+      const rect = li.getBoundingClientRect();
+      const insertBefore = e.clientY < rect.top + rect.height / 2;
+      
+      // Remove dragged item from array
+      const [draggedTodo] = todos.splice(draggedIndex, 1);
+      
+      // Calculate new index after removal
+      let newIndex;
+      if (draggedIndex < targetIndex) {
+        // Dragged item was before target, target index decreased by 1
+        newIndex = insertBefore ? targetIndex - 1 : targetIndex;
+      } else {
+        // Dragged item was after target, target index unchanged
+        newIndex = insertBefore ? targetIndex : targetIndex + 1;
+      }
+      
+      // Insert at new position
+      todos.splice(newIndex, 0, draggedTodo);
+      
+      saveTodos();
+    });
+  }
+  
   // Checkbox
   const checkbox = document.createElement('div');
   checkbox.className = `todo-checkbox ${todo.completed ? 'checked' : ''}`;
@@ -308,6 +444,7 @@ function renderTodoItem(todo, isSubtask = false) {
     const subtaskInputContainer = document.createElement('li');
     subtaskInputContainer.className = 'subtask-input-container';
     subtaskInputContainer.dataset.parentId = todo.id;
+    subtaskInputContainer.draggable = false; // Prevent dragging of subtask input container
     const subtaskInput = document.createElement('input');
     subtaskInput.type = 'text';
     subtaskInput.className = 'subtask-input';
@@ -386,8 +523,6 @@ function setFilter(filter) {
 }
 
 // Event listeners
-addBtn.addEventListener('click', addTodo);
-
 todoInput.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') {
     addTodo();
@@ -412,11 +547,18 @@ historyBtn.addEventListener('click', (e) => {
   showHistory();
   closeDropdown();
 });
+settingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  showSettings();
+  closeDropdown();
+});
 menuBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   toggleDropdown();
 });
 closeModalBtn.addEventListener('click', closeHistoryModal);
+clearHistoryBtn.addEventListener('click', clearHistory);
+closeSettingsModalBtn.addEventListener('click', closeSettingsModal);
 
 // Close dropdown when clicking outside
 document.addEventListener('click', (e) => {
@@ -431,6 +573,40 @@ historyModal.addEventListener('click', (e) => {
     closeHistoryModal();
   }
 });
+
+settingsModal.addEventListener('click', (e) => {
+  if (e.target === settingsModal) {
+    closeSettingsModal();
+  }
+});
+
+// Background color picker event
+if (backgroundColorPicker) {
+  backgroundColorPicker.addEventListener('input', (e) => {
+    saveBackgroundColor(e.target.value);
+  });
+  
+  backgroundColorPicker.addEventListener('change', (e) => {
+    saveBackgroundColor(e.target.value);
+  });
+}
+
+// Color preset buttons - initialize after DOM is ready
+let colorPresetsInitialized = false;
+function initColorPresets() {
+  if (colorPresetsInitialized) return;
+  const colorPresets = document.querySelectorAll('.color-preset');
+  colorPresets.forEach(preset => {
+    preset.addEventListener('click', () => {
+      const color = preset.getAttribute('data-color');
+      if (backgroundColorPicker) {
+        backgroundColorPicker.value = color;
+      }
+      saveBackgroundColor(color);
+    });
+  });
+  colorPresetsInitialized = true;
+}
 
 // Export todos to JSON file
 function exportTodos() {
@@ -523,7 +699,35 @@ function closeHistoryModal() {
   historyModal.style.display = 'none';
 }
 
+// Settings modal functions
+function showSettings() {
+  settingsModal.style.display = 'block';
+  // Ensure color presets are initialized when settings modal is shown
+  initColorPresets();
+}
+
+function closeSettingsModal() {
+  settingsModal.style.display = 'none';
+}
+
+function clearHistory() {
+  if (archivedTodos.length === 0) {
+    return;
+  }
+  
+  if (confirm('确定要清除所有历史记录吗？此操作无法撤销。')) {
+    archivedTodos = [];
+    saveTodos();
+    renderHistory();
+  }
+}
+
 function renderHistory() {
+  // Update clear button state
+  if (clearHistoryBtn) {
+    clearHistoryBtn.disabled = archivedTodos.length === 0;
+  }
+  
   if (archivedTodos.length === 0) {
     historyContent.innerHTML = '<div class="empty-history"><p>暂无历史记录</p></div>';
     return;
@@ -588,4 +792,5 @@ function escapeHtml(text) {
 
 // Initialize
 loadTodos();
+initColorPresets();
 

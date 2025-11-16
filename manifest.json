@@ -2,9 +2,19 @@
   "manifest_version": 3,
   "name": "今天你干完活了吗",
   "version": "1.2.0",
-  "description": "A clean and beautiful todo management tool by xh",
+  "description": "A clean and beautiful todo management tool by XH/ OC",
+  "icons": {
+    "16": "icon/bull.png",
+    "48": "icon/bull.png",
+    "128": "icon/bull.png"
+  },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon/bull.png",
+      "48": "icon/bull.png",
+      "128": "icon/bull.png"
+    }
   },
   "permissions": [
     "storage"

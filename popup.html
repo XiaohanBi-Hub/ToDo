@@ -12,13 +12,6 @@
 <body>
   <div class="container">
     <header class="header">
-      <div class="header-title-section">
-        <h1 class="title">今天你干完活了吗</h1>
-        <div class="by-author">by xh</div>
-      </div>
-      <button id="newDayBtn" class="action-btn new-day-btn">
-        <img src="icon/sun.png" alt="New Day" class="sun-icon">
-      </button>
     </header>
     
     <div class="input-section">
@@ -26,22 +19,23 @@
         type="text" 
         id="todoInput" 
         class="todo-input" 
-        placeholder="Add a new todo..."
+        placeholder="Add new task here"
         autocomplete="off"
       >
-      <button id="addBtn" class="add-btn">
-        <img src="icon/add.png" alt="Add" class="add-icon">
-      </button>
       <div class="dropdown">
         <button id="menuBtn" class="action-btn menu-btn">
           <img src="icon/menu.png" alt="Menu" class="menu-icon">
         </button>
         <div id="dropdownMenu" class="dropdown-menu">
           <button id="historyBtn" class="dropdown-item">History</button>
+          <button id="settingsBtn" class="dropdown-item">Settings</button>
           <button id="exportBtn" class="dropdown-item">Export</button>
           <button id="importBtn" class="dropdown-item">Import</button>
         </div>
       </div>
+      <button id="newDayBtn" class="action-btn new-day-btn">
+        <img src="icon/sun.png" alt="New Day" class="sun-icon">
+      </button>
     </div>
     
     <ul class="todo-list" id="todoList">
@@ -50,6 +44,8 @@
     
     <div class="empty-state" id="emptyState">
     </div>
+    
+    <div class="author-info">by XH/OC</div>
   </div>
   
   <!-- History Modal -->
@@ -57,10 +53,41 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>History</h2>
-        <button id="closeModalBtn" class="close-btn">&times;</button>
+        <div class="modal-header-actions">
+          <button id="clearHistoryBtn" class="clear-btn">Clear</button>
+          <button id="closeModalBtn" class="close-btn">&times;</button>
+        </div>
       </div>
       <div class="modal-body" id="historyContent">
         <!-- History items will be inserted here -->
+      </div>
+    </div>
+  </div>
+  
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button id="closeSettingsModalBtn" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body" id="settingsContent">
+        <div class="settings-section">
+          <h3 class="settings-title">Background Color</h3>
+          <div class="color-picker-container">
+            <input type="color" id="backgroundColorPicker" class="color-picker" value="#f5f5f5">
+            <div class="color-presets">
+              <div class="color-preset" data-color="#f5f5f5" style="background-color: #f5f5f5;" title="Default"></div>
+              <div class="color-preset" data-color="#ffffff" style="background-color: #ffffff;" title="White"></div>
+              <div class="color-preset" data-color="#f0f8ff" style="background-color: #f0f8ff;" title="Alice Blue"></div>
+              <div class="color-preset" data-color="#fff8dc" style="background-color: #fff8dc;" title="Cornsilk"></div>
+              <div class="color-preset" data-color="#f5fffa" style="background-color: #f5fffa;" title="Mint Cream"></div>
+              <div class="color-preset" data-color="#ffe4e1" style="background-color: #ffe4e1;" title="Misty Rose"></div>
+              <div class="color-preset" data-color="#e6e6fa" style="background-color: #e6e6fa;" title="Lavender"></div>
+              <div class="color-preset" data-color="#f0fff0" style="background-color: #f0fff0;" title="Honeydew"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

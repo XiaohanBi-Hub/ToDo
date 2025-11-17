@@ -18,6 +18,9 @@
   },
   "permissions": [
     "storage"
+  ],
+  "host_permissions": [
+    "https://api.siliconflow.cn/*"
   ]
 }
 

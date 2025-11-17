@@ -20,10 +20,12 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsModal = document.getElementById('settingsModal');
 const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
 const backgroundColorPicker = document.getElementById('backgroundColorPicker');
+const encouragementMessage = document.getElementById('encouragementMessage');
+const apiTokenInput = document.getElementById('apiTokenInput');
 
 // Load todos from storage
 function loadTodos() {
-  chrome.storage.sync.get(['todos', 'archivedTodos', 'backgroundColor'], (result) => {
+  chrome.storage.sync.get(['todos', 'archivedTodos', 'backgroundColor', 'apiToken'], (result) => {
     todos = (result.todos || []).map(todo => ({
       ...todo,
       subtasks: todo.subtasks || [],
@@ -38,6 +40,14 @@ function loadTodos() {
     if (backgroundColorPicker) {
       backgroundColorPicker.value = bgColor;
     }
+    
+    // Load API token
+    if (apiTokenInput && result.apiToken) {
+      apiTokenInput.value = result.apiToken;
+    }
+    
+    // Generate encouragement message on load
+    generateEncouragementMessage(result.apiToken);
   });
 }
 
@@ -591,6 +601,27 @@ if (backgroundColorPicker) {
   });
 }
 
+// API token input event
+if (apiTokenInput) {
+  apiTokenInput.addEventListener('blur', (e) => {
+    const token = e.target.value.trim();
+    if (token) {
+      chrome.storage.sync.set({ apiToken: token }, () => {
+        // Regenerate encouragement message with new token
+        generateEncouragementMessage(token);
+      });
+    } else {
+      chrome.storage.sync.remove('apiToken');
+    }
+  });
+  
+  apiTokenInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.target.blur();
+    }
+  });
+}
+
 // Color preset buttons - initialize after DOM is ready
 let colorPresetsInitialized = false;
 function initColorPresets() {
@@ -704,6 +735,12 @@ function showSettings() {
   settingsModal.style.display = 'block';
   // Ensure color presets are initialized when settings modal is shown
   initColorPresets();
+  // Load API token when opening settings
+  chrome.storage.sync.get(['apiToken'], (result) => {
+    if (apiTokenInput && result.apiToken) {
+      apiTokenInput.value = result.apiToken;
+    }
+  });
 }
 
 function closeSettingsModal() {
@@ -788,6 +825,59 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Generate encouragement message using SiliconFlow API
+async function generateEncouragementMessage(apiToken) {
+  if (!encouragementMessage) return;
+  
+  // If no API token, show placeholder
+  if (!apiToken || apiToken.trim() === '') {
+    encouragementMessage.innerHTML = '<div class="encouragement-text">Please configure the API Token in the settings to get daily encouragement messages</div>';
+    return;
+  }
+  
+  // Show loading state
+  encouragementMessage.innerHTML = '<div class="encouragement-loading">Generating...</div>';
+  
+  try {
+    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'deepseek-ai/DeepSeek-V3.1-Terminus',
+        messages: [
+          {
+            role: 'user',
+            content: '我最近工作比较辛苦，请给我一段简短而温暖的鼓励话语，不超过50字，帮助我保持积极的心态和动力。只给我返回话语，不要给我返回任何其他内容。'
+          }
+        ],
+        stream: false,
+        max_tokens: 200,
+        temperature: 0.9,
+        top_p: 0.7,
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API Request Failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+      const message = data.choices[0].message.content.trim();
+      encouragementMessage.innerHTML = `<div class="encouragement-text">${escapeHtml(message)}</div>`;
+    } else {
+      throw new Error('API 返回格式异常');
+    }
+  } catch (error) {
+    console.error('Generating Failed:', error);
+    encouragementMessage.innerHTML = '<div class="encouragement-error">Generating Failed, please check the API Token</div>';
+  }
 }
 
 // Initialize

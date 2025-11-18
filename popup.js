@@ -872,7 +872,7 @@ async function generateEncouragementMessage(apiToken) {
       const message = data.choices[0].message.content.trim();
       encouragementMessage.innerHTML = `<div class="encouragement-text">${escapeHtml(message)}</div>`;
     } else {
-      throw new Error('API return format exception');
+      throw new Error('API 返回格式异常');
     }
   } catch (error) {
     console.error('Generating Failed:', error);

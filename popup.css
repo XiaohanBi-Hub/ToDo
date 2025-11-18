@@ -605,7 +605,7 @@ body {
 }
 
 .todo-checkbox:hover {
-  border-color: #999;
+  border-color: #f9ebee;
 }
 
 .todo-checkbox.checked {
@@ -736,12 +736,12 @@ body {
 }
 
 .delete-btn {
-  background: #ff4444;
+  background: #8A4C57;
   color: white;
 }
 
 .delete-btn:hover {
-  background: #cc0000;
+  background: #61212D;
 }
 
 .next-day-btn {

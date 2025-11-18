@@ -4,8 +4,15 @@
   box-sizing: border-box;
 }
 
-body {
+body,
+button,
+input,
+select,
+textarea {
   font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+}
+
+body {
   width: 380px;
   min-height: 500px;
   background: #f5f5f5;
@@ -47,6 +54,10 @@ body {
   background-repeat: no-repeat;
   opacity: 0.7;
   z-index: 0;
+}
+
+.header.mode-forwardedge::before {
+  background-image: url('icon/boss.jpg');
 }
 
 .header > * {
@@ -733,6 +744,25 @@ body {
   background: #cc0000;
 }
 
+.next-day-btn {
+  padding: 3.6px 7.2px;
+  border: none;
+  border-radius: 3px;
+  font-size: 10.8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  pointer-events: auto;
+  position: relative;
+  z-index: 11;
+  background: #ffb347;
+  color: white;
+}
+
+.next-day-btn:hover {
+  background: #ff9800;
+}
+
 .add-subtask-btn {
   background: #4caf50;
   color: white;
@@ -882,5 +912,35 @@ body {
   color: #bbb;
   font-weight: 400;
   pointer-events: none;
+}
+
+/* Mode selector styles */
+.mode-selector {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 10px 16px;
+  border: 2px solid #e0e0e0;
+  background: white;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #666;
+  font-weight: 500;
+}
+
+.mode-btn:hover {
+  background: #f5f5f5;
+  border-color: #ccc;
+}
+
+.mode-btn.active {
+  background: #333;
+  color: white;
+  border-color: #333;
 }
 

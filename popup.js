@@ -1,6 +1,7 @@
 // Initialize
 let todos = [];
 let archivedTodos = [];
+let nextDayTodos = [];
 
 // DOM elements
 const todoInput = document.getElementById('todoInput');
@@ -20,16 +21,24 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsModal = document.getElementById('settingsModal');
 const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
 const backgroundColorPicker = document.getElementById('backgroundColorPicker');
+const modeGoodMoodBtn = document.getElementById('modeGoodMood');
+const modeForwardEdgeBtn = document.getElementById('modeForwardEdge');
+const header = document.querySelector('.header');
 
 // Load todos from storage
 function loadTodos() {
-  chrome.storage.sync.get(['todos', 'archivedTodos', 'backgroundColor'], (result) => {
+  chrome.storage.sync.get(['todos', 'archivedTodos', 'nextDayTodos', 'backgroundColor', 'mode'], (result) => {
     todos = (result.todos || []).map(todo => ({
       ...todo,
       subtasks: todo.subtasks || [],
       expanded: todo.expanded === true ? true : false // Explicitly ensure only true values remain true
     }));
     archivedTodos = result.archivedTodos || [];
+    nextDayTodos = (result.nextDayTodos || []).map(todo => ({
+      ...todo,
+      subtasks: todo.subtasks || [],
+      expanded: todo.expanded === true ? true : false
+    }));
     renderTodos();
     
     // Load and apply background color
@@ -38,6 +47,10 @@ function loadTodos() {
     if (backgroundColorPicker) {
       backgroundColorPicker.value = bgColor;
     }
+    
+    // Load and apply mode
+    const mode = result.mode || 'goodmood';
+    applyMode(mode);
   });
 }
 
@@ -57,11 +70,43 @@ function saveBackgroundColor(color) {
   });
 }
 
+// Apply mode settings
+function applyMode(mode) {
+  // Update header background
+  if (header) {
+    header.classList.remove('mode-forwardedge', 'mode-goodmood');
+    header.classList.add(`mode-${mode}`);
+  }
+  
+  // Update input placeholder
+  if (todoInput) {
+    if (mode === 'forwardedge') {
+      todoInput.placeholder = '老板：你今天干完活没？？';
+    } else {
+      todoInput.placeholder = 'Add new task here';
+    }
+  }
+  
+  // Update mode buttons
+  if (modeGoodMoodBtn && modeForwardEdgeBtn) {
+    modeGoodMoodBtn.classList.toggle('active', mode === 'goodmood');
+    modeForwardEdgeBtn.classList.toggle('active', mode === 'forwardedge');
+  }
+}
+
+// Save mode to storage
+function saveMode(mode) {
+  chrome.storage.sync.set({ mode: mode }, () => {
+    applyMode(mode);
+  });
+}
+
 // Save todos to storage
 function saveTodos() {
   chrome.storage.sync.set({ 
     todos: todos,
-    archivedTodos: archivedTodos 
+    archivedTodos: archivedTodos,
+    nextDayTodos: nextDayTodos
   }, () => {
     renderTodos();
   });
@@ -126,6 +171,23 @@ function toggleSubtask(parentId, subtaskId) {
 // Delete a todo
 function deleteTodo(id) {
   todos = todos.filter(t => t.id !== id);
+  saveTodos();
+}
+
+// Move todo to next day
+function moveTodoToNextDay(id) {
+  const index = todos.findIndex(t => t.id === id);
+  if (index === -1) return;
+
+  const [todo] = todos.splice(index, 1);
+  const todoForNextDay = {
+    ...todo,
+    expanded: false,
+    _focusSubtaskInput: false,
+    movedToNextDayAt: new Date().toISOString()
+  };
+
+  nextDayTodos.unshift(todoForNextDay);
   saveTodos();
 }
 
@@ -407,6 +469,18 @@ function renderTodoItem(todo, isSubtask = false) {
   const actionsContainer = document.createElement('div');
   actionsContainer.className = 'todo-actions';
   
+  // Next day button (only for main todos)
+  if (!isSubtask) {
+    const nextDayBtn = document.createElement('button');
+    nextDayBtn.className = 'next-day-btn';
+    nextDayBtn.textContent = 'Next day';
+    nextDayBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveTodoToNextDay(todo.id);
+    });
+    actionsContainer.appendChild(nextDayBtn);
+  }
+
   // Delete button
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'delete-btn';
@@ -608,6 +682,19 @@ function initColorPresets() {
   colorPresetsInitialized = true;
 }
 
+// Mode button event listeners
+if (modeGoodMoodBtn) {
+  modeGoodMoodBtn.addEventListener('click', () => {
+    saveMode('goodmood');
+  });
+}
+
+if (modeForwardEdgeBtn) {
+  modeForwardEdgeBtn.addEventListener('click', () => {
+    saveMode('forwardedge');
+  });
+}
+
 // Export todos to JSON file
 function exportTodos() {
   const dataStr = JSON.stringify(todos, null, 2);
@@ -674,7 +761,12 @@ function startNewDay() {
   archivedTodos = [...todosToArchive, ...archivedTodos];
   
   // Clear current todos
-  todos = [];
+  todos = nextDayTodos.map(todo => ({
+    ...todo,
+    subtasks: (todo.subtasks || []).map(subtask => ({ ...subtask })),
+    expanded: false
+  }));
+  nextDayTodos = [];
   
   // Save to storage
   saveTodos();
@@ -704,6 +796,11 @@ function showSettings() {
   settingsModal.style.display = 'block';
   // Ensure color presets are initialized when settings modal is shown
   initColorPresets();
+  // Load current mode to update button states
+  chrome.storage.sync.get(['mode'], (result) => {
+    const mode = result.mode || 'goodmood';
+    applyMode(mode);
+  });
 }
 
 function closeSettingsModal() {
@@ -739,11 +836,7 @@ function renderHistory() {
     const date = new Date(todo.archivedAt);
     // Use ISO date string as key for sorting, then format for display
     const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
-    const displayDate = date.toLocaleDateString('zh-CN', { 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    const displayDate = formatHistoryDate(date);
     
     if (!grouped[dateKey]) {
       grouped[dateKey] = {
@@ -788,6 +881,14 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function formatHistoryDate(date) {
+  const day = date.toLocaleString('en-US', { day: '2-digit' });
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  const year = date.toLocaleString('en-US', { year: '2-digit' });
+  const weekday = date.toLocaleString('en-US', { weekday: 'short' });
+  return `${day} ${month} ${year}, ${weekday}`;
 }
 
 // Initialize

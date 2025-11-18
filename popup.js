@@ -852,7 +852,7 @@ async function generateEncouragementMessage(apiToken) {
         messages: [
           {
             role: 'user',
-            content: '我最近在努力完成我的目标，请给我一段简短而温暖的鼓励话语，不超过80字，帮助我保持积极的心态和动力。只给我返回话语，不要给我返回任何其他内容。'
+            content: '我最近工作比较辛苦，请给我一段简短而温暖的鼓励话语，不超过50字，帮助我保持积极的心态和动力。只给我返回话语，不要给我返回任何其他内容。'
           }
         ],
         stream: false,

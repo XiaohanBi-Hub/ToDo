@@ -12,37 +12,54 @@
 <body>
   <div class="container">
     <header class="header">
+      <div class="view-toggle" role="tablist" aria-label="View switcher">
+        <button class="view-toggle-btn active" data-view="tasks" type="button" aria-label="任务视图"></button>
+        <button class="view-toggle-btn" data-view="projects" type="button" aria-label="项目视图"></button>
+      </div>
     </header>
     
-    <div class="input-section">
-      <input 
-        type="text" 
-        id="todoInput" 
-        class="todo-input" 
-        placeholder="Add new task here"
-        autocomplete="off"
-      >
-      <div class="dropdown">
-        <button id="menuBtn" class="action-btn menu-btn">
-          <img src="icon/menu.png" alt="Menu" class="menu-icon">
-        </button>
-        <div id="dropdownMenu" class="dropdown-menu">
-          <button id="historyBtn" class="dropdown-item">History</button>
-          <button id="settingsBtn" class="dropdown-item">Settings</button>
-          <button id="exportBtn" class="dropdown-item">Export</button>
-          <button id="importBtn" class="dropdown-item">Import</button>
+    <div id="taskView" class="task-view">
+      <div class="input-section">
+        <input 
+          type="text" 
+          id="todoInput" 
+          class="todo-input" 
+          placeholder="Add new task here"
+          autocomplete="off"
+        >
+        <div class="dropdown">
+          <button id="menuBtn" class="action-btn menu-btn">
+            <img src="icon/menu.png" alt="Menu" class="menu-icon">
+          </button>
+          <div id="dropdownMenu" class="dropdown-menu">
+            <button id="historyBtn" class="dropdown-item">History</button>
+            <button id="settingsBtn" class="dropdown-item">Settings</button>
+            <button id="exportBtn" class="dropdown-item">Export</button>
+            <button id="importBtn" class="dropdown-item">Import</button>
+          </div>
         </div>
+        <button id="newDayBtn" class="action-btn new-day-btn">
+          <img src="icon/sun.png" alt="New Day" class="sun-icon">
+        </button>
       </div>
-      <button id="newDayBtn" class="action-btn new-day-btn">
-        <img src="icon/sun.png" alt="New Day" class="sun-icon">
-      </button>
+      
+      <ul class="todo-list" id="todoList">
+        <!-- Todo items will be inserted here -->
+      </ul>
+      
+      <div class="empty-state" id="emptyState">
+      </div>
     </div>
-    
-    <ul class="todo-list" id="todoList">
-      <!-- Todo items will be inserted here -->
-    </ul>
-    
-    <div class="empty-state" id="emptyState">
+
+    <div id="projectView" class="project-view" aria-hidden="true">
+      <div class="project-toolbar">
+        <button id="addStreamBtn" class="project-toolbar-btn primary">+</button>
+        <button id="timelineRangeSelect" class="project-range-select">4W</button>
+      </div>
+      <div id="projectList" class="project-list"></div>
+      <div id="projectEmptyState" class="project-empty">
+        暂无项目。
+      </div>
     </div>
     
     <div class="author-info">by XH/OC</div>
@@ -74,10 +91,7 @@
       <div class="modal-body" id="settingsContent">
         <div class="settings-section">
           <h3 class="settings-title">Mode</h3>
-          <div class="mode-selector">
-            <button id="modeGoodMood" class="mode-btn active" data-mode="goodmood">Good Mood</button>
-            <button id="modeForwardEdge" class="mode-btn" data-mode="forwardedge">狗腿子版</button>
-          </div>
+          <p class="settings-description">Good Mood</p>
         </div>
         <div class="settings-section">
           <h3 class="settings-title">Background Color</h3>
@@ -92,6 +106,17 @@
               <div class="color-preset" data-color="#ffe4e1" style="background-color: #ffe4e1;" title="Misty Rose"></div>
               <div class="color-preset" data-color="#e6e6fa" style="background-color: #e6e6fa;" title="Lavender"></div>
               <div class="color-preset" data-color="#f0fff0" style="background-color: #f0fff0;" title="Honeydew"></div>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3 class="settings-title">Header Background Image</h3>
+          <div class="header-bg-upload-container">
+            <input type="file" id="headerBgUpload" accept="image/*" style="display: none;">
+            <button id="uploadHeaderBgBtn" class="upload-btn">Upload Image</button>
+            <button id="resetHeaderBgBtn" class="reset-btn">Reset to Default</button>
+            <div id="headerBgPreview" class="header-bg-preview" style="display: none;">
+              <img id="headerBgPreviewImg" src="" alt="Preview">
             </div>
           </div>
         </div>

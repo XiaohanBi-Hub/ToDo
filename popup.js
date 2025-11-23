@@ -2,6 +2,28 @@
 let todos = [];
 let archivedTodos = [];
 let nextDayTodos = [];
+let projects = [];
+let activeView = 'tasks';
+let timelineRangeWeeks = 4;
+let activeStreamInteraction = null;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const STREAM_MIN_DURATION_MS = MS_PER_DAY;
+const DEFAULT_PROJECT_DURATION_DAYS = 28;
+const DEFAULT_STREAM_DURATION_DAYS = 7;
+
+// 流程条预设颜色（RGB格式，用于rgba）
+const STREAM_COLOR_PRESETS = [
+  { bg: '74, 222, 128', text: '20, 83, 45', handle: '20, 83, 45' }, // 绿色
+  { bg: '251, 146, 60', text: '154, 52, 18', handle: '154, 52, 18' }, // 橙色
+  { bg: '168, 85, 247', text: '88, 28, 135', handle: '88, 28, 135' }, // 紫色
+  { bg: '236, 72, 153', text: '157, 23, 77', handle: '157, 23, 77' }, // 粉色
+];
+const DEFAULT_STREAM_COLOR = STREAM_COLOR_PRESETS[0];
+
+function createUniqueId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
 
 // DOM elements
 const todoInput = document.getElementById('todoInput');
@@ -21,36 +43,134 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsModal = document.getElementById('settingsModal');
 const closeSettingsModalBtn = document.getElementById('closeSettingsModalBtn');
 const backgroundColorPicker = document.getElementById('backgroundColorPicker');
-const modeGoodMoodBtn = document.getElementById('modeGoodMood');
-const modeForwardEdgeBtn = document.getElementById('modeForwardEdge');
 const header = document.querySelector('.header');
+const headerBgUpload = document.getElementById('headerBgUpload');
+const uploadHeaderBgBtn = document.getElementById('uploadHeaderBgBtn');
+const resetHeaderBgBtn = document.getElementById('resetHeaderBgBtn');
+const headerBgPreview = document.getElementById('headerBgPreview');
+const headerBgPreviewImg = document.getElementById('headerBgPreviewImg');
+const taskView = document.getElementById('taskView');
+const projectView = document.getElementById('projectView');
+const projectList = document.getElementById('projectList');
+const projectEmptyState = document.getElementById('projectEmptyState');
+const timelineRangeSelect = document.getElementById('timelineRangeSelect');
+const addStreamBtn = document.getElementById('addStreamBtn');
+const viewToggleButtons = document.querySelectorAll('.view-toggle-btn');
+
+const NEW_DAY_LONG_PRESS_DURATION = 1000;
+let newDayPressTimer = null;
+let newDayToastTimer = null;
+const TODO_DATA_KEYS = ['todos', 'archivedTodos', 'nextDayTodos'];
+const TODO_STATE_META_KEY = 'todosUpdatedAt';
+const TODO_STORAGE_KEYS = [...TODO_DATA_KEYS, TODO_STATE_META_KEY];
+const SETTINGS_STORAGE_KEYS = ['backgroundColor', 'projects', 'activeView', 'headerBackgroundImage'];
+const todoStorageArea = chrome.storage && chrome.storage.local ? chrome.storage.local : chrome.storage.sync;
+const syncStorageArea = chrome.storage && chrome.storage.sync ? chrome.storage.sync : chrome.storage.local;
+const shouldSyncLightweightTodos = Boolean(syncStorageArea && syncStorageArea !== todoStorageArea);
 
 // Load todos from storage
 function loadTodos() {
-  chrome.storage.sync.get(['todos', 'archivedTodos', 'nextDayTodos', 'backgroundColor', 'mode'], (result) => {
-    todos = (result.todos || []).map(todo => ({
+  const applyTodoData = (data = {}) => {
+    todos = (data.todos || []).map(todo => ({
       ...todo,
       subtasks: todo.subtasks || [],
-      expanded: todo.expanded === true ? true : false // Explicitly ensure only true values remain true
+      expanded: todo.expanded === true ? true : false
     }));
-    archivedTodos = result.archivedTodos || [];
-    nextDayTodos = (result.nextDayTodos || []).map(todo => ({
+    archivedTodos = data.archivedTodos || [];
+    nextDayTodos = (data.nextDayTodos || []).map(todo => ({
       ...todo,
       subtasks: todo.subtasks || [],
       expanded: todo.expanded === true ? true : false
     }));
     renderTodos();
-    
-    // Load and apply background color
-    const bgColor = result.backgroundColor || '#f5f5f5';
+  };
+
+  const applySettingsData = (data = {}) => {
+    const bgColor = data.backgroundColor || '#f5f5f5';
     applyBackgroundColor(bgColor);
     if (backgroundColorPicker) {
       backgroundColorPicker.value = bgColor;
     }
-    
-    // Load and apply mode
-    const mode = result.mode || 'goodmood';
-    applyMode(mode);
+
+    // Apply header background image
+    if (data.headerBackgroundImage) {
+      applyHeaderBackgroundImage(data.headerBackgroundImage);
+      if (headerBgPreviewImg) {
+        headerBgPreviewImg.src = data.headerBackgroundImage;
+        if (headerBgPreview) {
+          headerBgPreview.style.display = 'block';
+        }
+      }
+    } else {
+      resetHeaderBackgroundImage();
+    }
+
+    const storedProjects = normalizeProjects(data.projects);
+    if (storedProjects.length > 0) {
+      projects = storedProjects;
+    } else {
+      projects = getSampleProjects();
+      saveProjects(projects, { silent: true });
+    }
+
+    activeView = data.activeView || 'tasks';
+    applyViewMode(activeView);
+    renderProjects();
+  };
+
+  if (!shouldSyncLightweightTodos) {
+    syncStorageArea.get([...TODO_STORAGE_KEYS, ...SETTINGS_STORAGE_KEYS], (data = {}) => {
+      const todoPayload = {
+        todos: data.todos || [],
+        archivedTodos: data.archivedTodos || [],
+        nextDayTodos: data.nextDayTodos || []
+      };
+      applyTodoData(todoPayload);
+      applySettingsData(data);
+    });
+    return;
+  }
+
+  todoStorageArea.get(TODO_STORAGE_KEYS, (localData = {}) => {
+    syncStorageArea.get([...TODO_STORAGE_KEYS, ...SETTINGS_STORAGE_KEYS], (syncData = {}) => {
+      const localHasState = Object.prototype.hasOwnProperty.call(localData, 'todos');
+      const syncHasState = Object.prototype.hasOwnProperty.call(syncData, 'todos');
+      const localTimestamp = localData[TODO_STATE_META_KEY] || 0;
+      const syncTimestamp = syncData[TODO_STATE_META_KEY] || 0;
+      const shouldUseSyncTodos = (syncHasState && !localHasState) ||
+        (syncHasState && syncTimestamp > localTimestamp);
+      const archivedFromLocal = Object.prototype.hasOwnProperty.call(localData, 'archivedTodos')
+        ? localData.archivedTodos
+        : undefined;
+      const archivedFallback = Object.prototype.hasOwnProperty.call(syncData, 'archivedTodos')
+        ? syncData.archivedTodos
+        : [];
+      const archivedToUse = archivedFromLocal !== undefined ? archivedFromLocal : archivedFallback;
+      const todoPayload = {
+        todos: shouldUseSyncTodos ? (syncData.todos || []) : (localData.todos || []),
+        nextDayTodos: shouldUseSyncTodos ? (syncData.nextDayTodos || []) : (localData.nextDayTodos || []),
+        archivedTodos: archivedToUse || []
+      };
+
+      applyTodoData(todoPayload);
+      applySettingsData(syncData);
+
+      const needsLocalUpdate = shouldUseSyncTodos || !localHasState || !localTimestamp;
+      if (needsLocalUpdate) {
+        todoStorageArea.set({
+          todos: todoPayload.todos,
+          nextDayTodos: todoPayload.nextDayTodos,
+          archivedTodos: todoPayload.archivedTodos,
+          [TODO_STATE_META_KEY]: shouldUseSyncTodos
+            ? (syncTimestamp || Date.now())
+            : (localTimestamp || Date.now())
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn('Failed to persist todo data locally:', chrome.runtime.lastError);
+          }
+        });
+      }
+    });
   });
 }
 
@@ -70,46 +190,1365 @@ function saveBackgroundColor(color) {
   });
 }
 
-// Apply mode settings
-function applyMode(mode) {
-  // Update header background
+// Apply header background image
+function applyHeaderBackgroundImage(imageData) {
   if (header) {
-    header.classList.remove('mode-forwardedge', 'mode-goodmood');
-    header.classList.add(`mode-${mode}`);
-  }
-  
-  // Update input placeholder
-  if (todoInput) {
-    if (mode === 'forwardedge') {
-      todoInput.placeholder = '老板：你今天干完活没？？';
-    } else {
-      todoInput.placeholder = 'Add new task here';
+    // Use CSS custom property to set background image
+    header.style.setProperty('--header-bg-image', `url(${imageData})`);
+    // Update the ::before pseudo-element via a style element or inline style
+    const styleId = 'header-bg-style';
+    let styleElement = document.getElementById(styleId);
+    if (!styleElement) {
+      styleElement = document.createElement('style');
+      styleElement.id = styleId;
+      document.head.appendChild(styleElement);
     }
-  }
-  
-  // Update mode buttons
-  if (modeGoodMoodBtn && modeForwardEdgeBtn) {
-    modeGoodMoodBtn.classList.toggle('active', mode === 'goodmood');
-    modeForwardEdgeBtn.classList.toggle('active', mode === 'forwardedge');
+    styleElement.textContent = `
+      .header::before {
+        background-image: url(${imageData});
+      }
+    `;
   }
 }
 
-// Save mode to storage
-function saveMode(mode) {
-  chrome.storage.sync.set({ mode: mode }, () => {
-    applyMode(mode);
+// Reset header background image to default
+function resetHeaderBackgroundImage() {
+  if (header) {
+    const styleId = 'header-bg-style';
+    const styleElement = document.getElementById(styleId);
+    if (styleElement) {
+      styleElement.remove();
+    }
+    header.style.removeProperty('--header-bg-image');
+  }
+  if (headerBgPreview) {
+    headerBgPreview.style.display = 'none';
+  }
+  if (headerBgPreviewImg) {
+    headerBgPreviewImg.src = '';
+  }
+}
+
+// Save header background image to storage
+function saveHeaderBackgroundImage(imageData) {
+  chrome.storage.sync.set({ headerBackgroundImage: imageData }, () => {
+    applyHeaderBackgroundImage(imageData);
+    if (headerBgPreviewImg) {
+      headerBgPreviewImg.src = imageData;
+      if (headerBgPreview) {
+        headerBgPreview.style.display = 'block';
+      }
+    }
+  });
+}
+
+function applyViewMode(view = 'tasks') {
+  activeView = view;
+  if (taskView) {
+    taskView.classList.toggle('hidden', view !== 'tasks');
+  }
+  if (projectView) {
+    projectView.classList.toggle('visible', view === 'projects');
+    projectView.setAttribute('aria-hidden', view === 'projects' ? 'false' : 'true');
+  }
+  document.body.classList.toggle('view-projects', view === 'projects');
+  if (viewToggleButtons && viewToggleButtons.length > 0) {
+    viewToggleButtons.forEach(btn => {
+      const isActive = btn.dataset.view === view;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+  }
+  if (view === 'projects') {
+    renderProjects();
+  }
+}
+
+function saveViewMode(view) {
+  chrome.storage.sync.set({ activeView: view }, () => {
+    applyViewMode(view);
   });
 }
 
 // Save todos to storage
 function saveTodos() {
-  chrome.storage.sync.set({ 
+  const timestamp = Date.now();
+  const payload = {
     todos: todos,
     archivedTodos: archivedTodos,
-    nextDayTodos: nextDayTodos
-  }, () => {
+    nextDayTodos: nextDayTodos,
+    [TODO_STATE_META_KEY]: timestamp
+  };
+
+  todoStorageArea.set(payload, () => {
+    if (chrome.runtime.lastError) {
+      console.error('Failed to save todos locally:', chrome.runtime.lastError);
+    }
     renderTodos();
   });
+
+  if (shouldSyncLightweightTodos) {
+    syncStorageArea.set({
+      todos: todos,
+      nextDayTodos: nextDayTodos,
+      [TODO_STATE_META_KEY]: timestamp
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn('Sync save skipped:', chrome.runtime.lastError);
+      }
+    });
+  }
+}
+
+function limitProjectsToSingle(data) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return [];
+  }
+  return data.slice(0, 1);
+}
+
+function normalizeProjects(data) {
+  const limitedProjects = limitProjectsToSingle(data);
+  if (limitedProjects.length === 0) {
+    return [];
+  }
+  return limitedProjects.map((project, projectIndex) => {
+    const startDate = project.startDate || new Date().toISOString();
+    const endDate = project.endDate || startDate;
+    const streams = Array.isArray(project.streams)
+      ? project.streams.map((stream, streamIndex) => ({
+          id: stream.id || `stream-${Date.now()}-${projectIndex}-${streamIndex}`,
+          label: stream.label || '未命名流程',
+          startDate: stream.startDate || startDate,
+          endDate: stream.endDate || endDate,
+          deadlines: Array.isArray(stream.deadlines) ? stream.deadlines : [],
+          color: typeof stream.color === 'number' && stream.color >= 0 && stream.color < STREAM_COLOR_PRESETS.length
+            ? stream.color
+            : (streamIndex % STREAM_COLOR_PRESETS.length) // 为旧数据分配默认颜色
+        }))
+      : [];
+    return {
+      id: project.id || `project-${Date.now()}-${projectIndex}`,
+      name: project.name || '未命名项目',
+      startDate,
+      endDate,
+      progress: typeof project.progress === 'number' ? project.progress : 0,
+      notes: project.notes || '',
+      streams
+    };
+  });
+}
+
+function getSampleProjects() {
+  const now = new Date();
+  const nextMonth = new Date(now.getTime() + 30 * MS_PER_DAY);
+  return [
+    {
+      id: 'project-sample-1',
+      name: 'AI Copilot 试点',
+      startDate: new Date(now.getTime() - 7 * MS_PER_DAY).toISOString(),
+      endDate: nextMonth.toISOString(),
+      progress: 0.55,
+      streams: [
+        {
+          id: 'stream-sample-1',
+          label: '研发',
+          startDate: new Date(now.getTime() - 7 * MS_PER_DAY).toISOString(),
+          endDate: new Date(now.getTime() + 14 * MS_PER_DAY).toISOString()
+        },
+        {
+          id: 'stream-sample-2',
+          label: '客户验证',
+          startDate: new Date(now.getTime() + 5 * MS_PER_DAY).toISOString(),
+          endDate: new Date(now.getTime() + 28 * MS_PER_DAY).toISOString()
+        }
+      ]
+    }
+  ];
+}
+
+function saveProjects(updatedProjects, options = {}) {
+  projects = limitProjectsToSingle(updatedProjects);
+  chrome.storage.sync.set({ projects }, () => {
+    if (!options.silent) {
+      renderProjects();
+    }
+  });
+}
+
+function renderProjects() {
+  if (!projectList) return;
+  projectList.innerHTML = '';
+  if (!projects || projects.length === 0) {
+    if (projectEmptyState) {
+      projectEmptyState.classList.add('show');
+    }
+    return;
+  }
+  if (projectEmptyState) {
+    projectEmptyState.classList.remove('show');
+  }
+  const { windowStart, windowEnd } = getTimelineWindow();
+  projects.forEach(project => {
+    projectList.appendChild(createProjectTimelineBlock(project, windowStart, windowEnd));
+  });
+}
+
+function createProjectTimelineBlock(project, windowStart, windowEnd) {
+  const block = document.createElement('div');
+  block.className = 'project-timeline-block';
+  block.dataset.projectId = project.id;
+  const timeline = document.createElement('div');
+  timeline.className = 'project-timeline';
+
+  const timelineGrid = document.createElement('div');
+  timelineGrid.className = 'timeline-grid';
+  timelineGrid.style.setProperty('--timeline-weeks', timelineRangeWeeks);
+
+  const weekLabels = buildWeekLabels(windowStart, timelineRangeWeeks);
+  weekLabels.forEach(label => {
+    const column = document.createElement('div');
+    column.className = 'timeline-column';
+    column.textContent = label;
+    timelineGrid.appendChild(column);
+  });
+
+  const timelineStreams = document.createElement('div');
+  timelineStreams.className = 'timeline-streams';
+  const streams = Array.isArray(project.streams) ? project.streams : [];
+  const height = Math.max(streams.length * 36, 60); // 增加最小高度，确保可以点击
+  timelineStreams.style.height = `${height}px`;
+  timelineStreams.style.minHeight = '60px'; // 确保最小高度
+  timelineStreams.dataset.windowStart = windowStart.toISOString();
+  timelineStreams.dataset.windowEnd = windowEnd.toISOString();
+
+  streams.forEach((stream, index) => {
+    const streamNode = createTimelineStream(stream, index, windowStart, windowEnd, project.id);
+    timelineStreams.appendChild(streamNode);
+  });
+
+  timeline.appendChild(timelineGrid);
+  timeline.appendChild(timelineStreams);
+
+  // 添加右键菜单事件，支持在任意位置添加小红旗
+  // 在 timeline 容器上监听，这样可以捕获所有区域（包括 timeline-grid 和 timeline-streams）
+  console.log('📌 为 timeline 添加右键事件监听器', {
+    projectId: project.id,
+    timelineElement: timeline,
+    timelineClassName: timeline.className
+  });
+  
+  timeline.addEventListener('contextmenu', (event) => {
+    console.log('=== Timeline 右键事件触发 ===', {
+      target: event.target,
+      targetClassName: event.target.className,
+      targetTagName: event.target.tagName,
+      currentTarget: event.currentTarget,
+      currentTargetClassName: event.currentTarget.className,
+      clientX: event.clientX,
+      clientY: event.clientY
+    });
+    
+    // 忽略在交互元素上的右键
+    if (event.target.closest('.timeline-stream-label') ||
+        event.target.closest('.stream-handle') ||
+        event.target.closest('.deadline-flag')) {
+      console.log('右键被忽略：点击在交互元素上');
+      return;
+    }
+    
+    // 检查点击是否在 timeline-streams 区域内（不包括 timeline-grid）
+    const streamsRect = timelineStreams.getBoundingClientRect();
+    const clickX = event.clientX;
+    const clickY = event.clientY;
+    
+    console.log('📍 检查点击位置', {
+      clickX,
+      clickY,
+      streamsRect: {
+        left: streamsRect.left,
+        right: streamsRect.right,
+        top: streamsRect.top,
+        bottom: streamsRect.bottom
+      },
+      inStreamsArea: clickX >= streamsRect.left && clickX <= streamsRect.right && 
+                     clickY >= streamsRect.top && clickY <= streamsRect.bottom
+    });
+    
+    if (clickX >= streamsRect.left && clickX <= streamsRect.right && 
+        clickY >= streamsRect.top && clickY <= streamsRect.bottom) {
+      console.log('✅ 点击在 timeline-streams 区域内，处理右键事件');
+      event.preventDefault();
+      event.stopPropagation();
+      handleTimelineRightClick(event, timelineStreams, windowStart, windowEnd, project.id);
+    } else {
+      console.log('❌ 点击不在 timeline-streams 区域内（可能在 timeline-grid 区域）');
+    }
+  }, true); // 使用捕获阶段确保能捕获事件
+
+  block.appendChild(timeline);
+  return block;
+}
+
+function createTimelineStream(stream, index, windowStart, windowEnd, projectId) {
+  const streamNode = document.createElement('div');
+  streamNode.className = 'timeline-stream';
+  streamNode.dataset.streamId = stream.id;
+  streamNode.dataset.projectId = projectId;
+
+  const startDate = stream.startDate ? new Date(stream.startDate) : new Date(windowStart);
+  const endDate = stream.endDate ? new Date(stream.endDate) : new Date(startDate);
+
+  streamNode.style.top = `${index * 36}px`;
+
+  const startHandle = document.createElement('span');
+  startHandle.className = 'stream-handle stream-handle-start';
+  startHandle.title = '拖拽调整开始日期';
+
+  const endHandle = document.createElement('span');
+  endHandle.className = 'stream-handle stream-handle-end';
+  endHandle.title = '拖拽调整结束日期';
+
+  const content = document.createElement('div');
+  content.className = 'timeline-stream-content';
+
+  const labelEl = document.createElement('span');
+  labelEl.className = 'timeline-stream-label';
+  labelEl.textContent = stream.label || '未命名流程';
+  labelEl.contentEditable = 'true';
+  labelEl.spellcheck = false;
+  labelEl.addEventListener('mousedown', (event) => event.stopPropagation());
+  labelEl.addEventListener('pointerdown', (event) => event.stopPropagation());
+  labelEl.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      labelEl.blur();
+    }
+  });
+  labelEl.addEventListener('blur', () => {
+    const nextLabel = (labelEl.textContent || '').trim() || '未命名流程';
+    labelEl.textContent = nextLabel;
+    handleStreamLabelChange(projectId, stream.id, nextLabel);
+  });
+
+  const rangeEl = document.createElement('span');
+  rangeEl.className = 'timeline-stream-range';
+
+  content.appendChild(labelEl);
+  content.appendChild(rangeEl);
+
+  streamNode.appendChild(startHandle);
+  streamNode.appendChild(content);
+  streamNode.appendChild(endHandle);
+
+  // 应用流程条颜色（如果stream.color无效，使用默认值0，而不是index，避免排序后颜色变化）
+  const colorIndex = typeof stream.color === 'number' && stream.color >= 0 && stream.color < STREAM_COLOR_PRESETS.length
+    ? stream.color
+    : 0;
+  applyStreamColor(streamNode, colorIndex);
+
+  setTimelineStreamPosition(streamNode, startDate, endDate, windowStart, windowEnd);
+  updateStreamRangeLabel(streamNode, startDate, endDate);
+
+  streamNode.addEventListener('pointerdown', (event) => handleStreamPointerDown(event, windowStart, windowEnd));
+
+  // 渲染已有的小红旗
+  renderDeadlineFlags(streamNode, stream.deadlines || [], windowStart, windowEnd, projectId, stream.id);
+
+  return streamNode;
+}
+
+// 应用流程条颜色
+function applyStreamColor(streamNode, colorIndex, fallbackIndex = 0) {
+  const colorIndexNum = typeof colorIndex === 'number' && colorIndex >= 0 && colorIndex < STREAM_COLOR_PRESETS.length
+    ? colorIndex
+    : (fallbackIndex % STREAM_COLOR_PRESETS.length);
+  const color = STREAM_COLOR_PRESETS[colorIndexNum];
+  
+  // 应用背景色（半透明）
+  streamNode.style.backgroundColor = `rgba(${color.bg}, 0.16)`;
+  streamNode.style.color = `rgb(${color.text})`;
+  
+  // 应用拖拽手柄颜色
+  const handles = streamNode.querySelectorAll('.stream-handle');
+  handles.forEach(handle => {
+    handle.style.backgroundColor = `rgba(${color.handle}, 0.35)`;
+  });
+  
+  // 保存颜色索引到 dataset
+  streamNode.dataset.colorIndex = colorIndexNum;
+}
+
+function setTimelineStreamPosition(streamNode, startDate, endDate, windowStart, windowEnd) {
+  const windowStartMs = windowStart.getTime();
+  const windowEndMs = windowEnd.getTime();
+  const startMs = startDate.getTime();
+  const endMs = Math.max(startMs + STREAM_MIN_DURATION_MS, endDate.getTime());
+  const clampedStart = Math.max(startMs, windowStartMs);
+  const clampedEnd = Math.max(clampedStart + STREAM_MIN_DURATION_MS, Math.min(endMs, windowEndMs));
+  const total = windowEndMs - windowStartMs;
+  const leftPct = total > 0 ? ((clampedStart - windowStartMs) / total) * 100 : 0;
+  const widthPct = total > 0 ? ((clampedEnd - clampedStart) / total) * 100 : 0;
+  streamNode.style.left = `${clamp(leftPct, 0, 100)}%`;
+  streamNode.style.width = `${Math.max(widthPct, 1)}%`;
+  streamNode.dataset.startDate = new Date(startMs).toISOString();
+  streamNode.dataset.endDate = new Date(endMs).toISOString();
+}
+
+function updateStreamRangeLabel(streamNode, startDate, endDate) {
+  const rangeEl = streamNode.querySelector('.timeline-stream-range');
+  if (rangeEl) {
+    rangeEl.textContent = formatProjectRange(startDate, endDate);
+  }
+  // 更新小红旗位置
+  updateDeadlineFlagsPosition(streamNode);
+}
+
+function updateDeadlineFlagsPosition(streamNode) {
+  const streamId = streamNode.dataset.streamId;
+  if (!streamId) return;
+  
+  const timeline = streamNode.parentElement;
+  if (!timeline) return;
+  
+  const flags = timeline.querySelectorAll(`.deadline-flag[data-stream-id="${streamId}"]`);
+  if (flags.length === 0) return;
+  
+  // 使用requestAnimationFrame确保在DOM更新后获取准确位置
+  requestAnimationFrame(() => {
+    const streamTop = streamNode.offsetTop || 0;
+    flags.forEach(flag => {
+      flag.style.top = `${streamTop - 20}px`;
+    });
+  });
+}
+
+function handleStreamLabelChange(projectId, streamId, nextLabel) {
+  const finalLabel = nextLabel && nextLabel.trim() ? nextLabel.trim() : '未命名流程';
+  const updatedProjects = projects.map(project => {
+    if (project.id !== projectId) return project;
+    return {
+      ...project,
+      streams: (project.streams || []).map(stream => {
+        if (stream.id !== streamId) return stream;
+        return {
+          ...stream,
+          label: finalLabel
+        };
+      })
+    };
+  });
+  saveProjects(updatedProjects, { silent: true });
+}
+
+function handleStreamPointerDown(event, windowStart, windowEnd) {
+  if (event.button !== 0 && event.pointerType !== 'touch') {
+    return;
+  }
+  const streamNode = event.currentTarget;
+  const projectId = streamNode?.dataset?.projectId;
+  const streamId = streamNode?.dataset?.streamId;
+  if (!streamNode || !projectId || !streamId) return;
+
+  const interactingLabel = event.target.closest('.timeline-stream-label');
+  if (interactingLabel) {
+    return;
+  }
+
+  const timeline = streamNode.parentElement;
+  if (!timeline) return;
+  const rect = timeline.getBoundingClientRect();
+  const totalWindowMs = windowEnd.getTime() - windowStart.getTime();
+  if (rect.width <= 0 || totalWindowMs <= 0) return;
+
+  const msPerPixel = totalWindowMs / rect.width;
+  if (!Number.isFinite(msPerPixel)) return;
+
+  const startHandle = event.target.closest('.stream-handle-start');
+  const endHandle = event.target.closest('.stream-handle-end');
+  const mode = startHandle ? 'resize-start' : endHandle ? 'resize-end' : 'move';
+
+  const startMs = new Date(streamNode.dataset.startDate).getTime();
+  const endMs = new Date(streamNode.dataset.endDate).getTime();
+
+  // 计算当前流程条的索引位置
+  const timelineStreams = timeline;
+  const allStreams = Array.from(timelineStreams.querySelectorAll('.timeline-stream'));
+  const currentIndex = allStreams.indexOf(streamNode);
+  const initialTop = parseFloat(streamNode.style.top) || (currentIndex * 36);
+
+  activeStreamInteraction = {
+    node: streamNode,
+    projectId,
+    streamId,
+    mode,
+    pointerId: event.pointerId,
+    pointerStartX: event.clientX,
+    pointerStartY: event.clientY,
+    msPerPixel,
+    windowStart,
+    windowEnd,
+    initialStartMs: startMs,
+    initialEndMs: endMs,
+    durationMs: Math.max(endMs - startMs, STREAM_MIN_DURATION_MS),
+    initialIndex: currentIndex,
+    initialTop: initialTop,
+    isSorting: false, // 是否进入排序模式
+    targetIndex: currentIndex // 目标索引位置
+  };
+
+  streamNode.setPointerCapture(event.pointerId);
+  event.preventDefault();
+}
+
+function handleStreamPointerMove(event) {
+  if (!activeStreamInteraction) return;
+  const interaction = activeStreamInteraction;
+  const deltaX = event.clientX - interaction.pointerStartX;
+  const deltaY = event.clientY - interaction.pointerStartY;
+  const deltaPx = deltaX;
+  const deltaMs = deltaPx * interaction.msPerPixel;
+  const windowStartMs = interaction.windowStart.getTime();
+  const windowEndMs = interaction.windowEnd.getTime();
+
+  // 如果点击的不是手柄，检测是否应该进入排序模式
+  if (interaction.mode === 'move' && !interaction.isSorting) {
+    const absDeltaX = Math.abs(deltaX);
+    const absDeltaY = Math.abs(deltaY);
+    // 如果垂直移动超过水平移动，且超过阈值（10px），进入排序模式
+    if (absDeltaY > absDeltaX && absDeltaY > 10) {
+      interaction.isSorting = true;
+      interaction.node.classList.add('sorting');
+    }
+  }
+
+  // 排序模式：上下拖拽重新排序
+  if (interaction.isSorting) {
+    const timelineStreams = interaction.node.parentElement;
+    const allStreams = Array.from(timelineStreams.querySelectorAll('.timeline-stream'));
+    const currentY = interaction.initialTop + deltaY;
+    
+    // 计算目标索引（每36px一行）
+    const targetIndex = Math.round(currentY / 36);
+    const clampedIndex = Math.max(0, Math.min(targetIndex, allStreams.length - 1));
+    
+    if (clampedIndex !== interaction.targetIndex) {
+      interaction.targetIndex = clampedIndex;
+    }
+    
+    // 更新所有流程条的位置
+    allStreams.forEach((stream, index) => {
+      if (stream === interaction.node) {
+        // 被拖拽的流程条跟随鼠标
+        stream.style.top = `${currentY}px`;
+      } else {
+        // 其他流程条根据目标位置调整
+        let adjustedIndex = index;
+        const initialIndex = interaction.initialIndex;
+        const targetIndex = interaction.targetIndex;
+        
+        if (targetIndex > initialIndex) {
+          // 向下移动：初始位置之后、目标位置之前的流程条向上移动
+          if (index > initialIndex && index <= targetIndex) {
+            adjustedIndex = index - 1;
+          }
+        } else if (targetIndex < initialIndex) {
+          // 向上移动：目标位置之后、初始位置之前的流程条向下移动
+          if (index >= targetIndex && index < initialIndex) {
+            adjustedIndex = index + 1;
+          }
+        }
+        stream.style.top = `${adjustedIndex * 36}px`;
+      }
+    });
+    
+    interaction.node.classList.add('dragging');
+    return;
+  }
+
+  // 原有的时间轴移动逻辑
+  let nextStartMs = interaction.initialStartMs;
+  let nextEndMs = interaction.initialEndMs;
+
+  if (interaction.mode === 'move') {
+    nextStartMs = interaction.initialStartMs + deltaMs;
+    nextEndMs = interaction.initialEndMs + deltaMs;
+    const duration = interaction.durationMs;
+    if (nextStartMs < windowStartMs) {
+      nextStartMs = windowStartMs;
+      nextEndMs = windowStartMs + duration;
+    }
+    if (nextEndMs > windowEndMs) {
+      nextEndMs = windowEndMs;
+      nextStartMs = windowEndMs - duration;
+    }
+  } else if (interaction.mode === 'resize-start') {
+    const absoluteMaxStart = Math.min(
+      interaction.initialEndMs - STREAM_MIN_DURATION_MS,
+      windowEndMs - STREAM_MIN_DURATION_MS
+    );
+    const maxStart = Math.max(windowStartMs, absoluteMaxStart);
+    nextStartMs = clamp(interaction.initialStartMs + deltaMs, windowStartMs, maxStart);
+  } else if (interaction.mode === 'resize-end') {
+    const absoluteMinEnd = Math.max(
+      interaction.initialStartMs + STREAM_MIN_DURATION_MS,
+      windowStartMs + STREAM_MIN_DURATION_MS
+    );
+    const minEnd = Math.min(absoluteMinEnd, windowEndMs);
+    nextEndMs = clamp(interaction.initialEndMs + deltaMs, minEnd, windowEndMs);
+  }
+
+  if (nextStartMs >= nextEndMs) {
+    nextEndMs = Math.min(windowEndMs, nextStartMs + STREAM_MIN_DURATION_MS);
+    nextStartMs = Math.max(windowStartMs, nextEndMs - STREAM_MIN_DURATION_MS);
+  }
+
+  const nextStartDate = new Date(nextStartMs);
+  const nextEndDate = new Date(nextEndMs);
+
+  setTimelineStreamPosition(interaction.node, nextStartDate, nextEndDate, interaction.windowStart, interaction.windowEnd);
+  updateStreamRangeLabel(interaction.node, nextStartDate, nextEndDate);
+
+  interaction.pendingStartMs = nextStartMs;
+  interaction.pendingEndMs = nextEndMs;
+  interaction.node.classList.add('dragging');
+}
+
+function handleStreamPointerUp() {
+  if (!activeStreamInteraction) return;
+  const interaction = activeStreamInteraction;
+  if (interaction.node.hasPointerCapture(interaction.pointerId)) {
+    interaction.node.releasePointerCapture(interaction.pointerId);
+  }
+  interaction.node.classList.remove('dragging');
+  interaction.node.classList.remove('sorting');
+
+  // 如果是排序模式，应用排序
+  if (interaction.isSorting) {
+    if (interaction.targetIndex !== interaction.initialIndex) {
+      reorderStreams(interaction.projectId, interaction.streamId, interaction.targetIndex);
+    } else {
+      // 如果没有改变位置，恢复所有流程条的位置
+      const timelineStreams = interaction.node.parentElement;
+      const allStreams = Array.from(timelineStreams.querySelectorAll('.timeline-stream'));
+      allStreams.forEach((stream, index) => {
+        stream.style.top = `${index * 36}px`;
+      });
+    }
+    activeStreamInteraction = null;
+    return;
+  }
+
+  // 原有的时间轴更新逻辑
+  const finalStartMs = interaction.pendingStartMs ?? interaction.initialStartMs;
+  const finalEndMs = interaction.pendingEndMs ?? interaction.initialEndMs;
+
+  if (finalStartMs !== interaction.initialStartMs || finalEndMs !== interaction.initialEndMs) {
+    updateStreamDates(
+      interaction.projectId,
+      interaction.streamId,
+      new Date(finalStartMs).toISOString(),
+      new Date(finalEndMs).toISOString()
+    );
+  }
+
+  activeStreamInteraction = null;
+}
+
+function updateStreamDates(projectId, streamId, startISO, endISO) {
+  const updatedProjects = projects.map(project => {
+    if (project.id !== projectId) return project;
+    return {
+      ...project,
+      streams: (project.streams || []).map(stream => {
+        if (stream.id !== streamId) return stream;
+        return {
+          ...stream,
+          startDate: startISO,
+          endDate: endISO
+        };
+      })
+    };
+  });
+  saveProjects(updatedProjects);
+}
+
+function reorderStreams(projectId, streamId, targetIndex) {
+  const updatedProjects = projects.map(project => {
+    if (project.id !== projectId) return project;
+    const streams = [...(project.streams || [])];
+    const currentIndex = streams.findIndex(s => s.id === streamId);
+    
+    if (currentIndex === -1 || currentIndex === targetIndex) {
+      return project;
+    }
+    
+    // 从原位置移除
+    const [movedStream] = streams.splice(currentIndex, 1);
+    // 插入到新位置
+    streams.splice(targetIndex, 0, movedStream);
+    
+    return {
+      ...project,
+      streams
+    };
+  });
+  saveProjects(updatedProjects);
+}
+
+function handleTimelineRightClick(event, timelineStreams, windowStart, windowEnd, projectId) {
+  console.log('handleTimelineRightClick 被调用', event.target);
+  
+  // 忽略在交互元素上的右键（但允许在流程条主体上右键选择颜色）
+  if (event.target.closest('.timeline-stream-label') ||
+      event.target.closest('.stream-handle') ||
+      event.target.closest('.deadline-flag')) {
+    console.log('右键被忽略：点击在交互元素上');
+    return;
+  }
+  
+  console.log('处理右键点击');
+  const rect = timelineStreams.getBoundingClientRect();
+  const clickX = event.clientX - rect.left;
+  const clickY = event.clientY - rect.top;
+  const totalWidth = rect.width;
+  const windowStartMs = windowStart.getTime();
+  const windowEndMs = windowEnd.getTime();
+  const totalMs = windowEndMs - windowStartMs;
+  
+  // 计算点击位置对应的时间
+  const clickRatio = Math.max(0, Math.min(1, clickX / totalWidth));
+  const clickDate = new Date(windowStartMs + clickRatio * totalMs);
+  
+  // 找到点击位置对应的流程条（根据Y坐标）
+  const streamNodes = Array.from(timelineStreams.querySelectorAll('.timeline-stream'));
+  let targetStreamNode = null;
+  let targetStreamId = null;
+  
+  // 检查是否点击在某个流程条上（使用getBoundingClientRect获取准确位置）
+  for (const streamNode of streamNodes) {
+    const streamRect = streamNode.getBoundingClientRect();
+    const streamTop = streamRect.top - rect.top;
+    const streamBottom = streamTop + streamRect.height;
+    
+    if (clickY >= streamTop && clickY <= streamBottom) {
+      targetStreamNode = streamNode;
+      targetStreamId = streamNode.dataset.streamId;
+      break;
+    }
+  }
+  
+  // 如果点击在流程条上，显示颜色选择菜单
+  if (targetStreamNode && targetStreamId) {
+    event.preventDefault();
+    showStreamColorMenu(event, targetStreamNode, targetStreamId, projectId);
+    return;
+  }
+  
+  // 创建新的deadline对象
+  const newDeadline = {
+    id: `deadline-${Date.now()}`,
+    date: clickDate.toISOString(),
+    comment: ''
+  };
+  
+  // 如果没有找到流程条，创建一个新的流程条（包含小红旗）
+  if (!targetStreamId) {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+    
+    // 计算新流程条的位置（行号）- 根据点击位置和现有流程条的位置来确定
+    let rowIndex = Math.floor(clickY / 36);
+    const existingStreams = project.streams || [];
+    
+    // 确保rowIndex在有效范围内
+    rowIndex = Math.max(0, Math.min(rowIndex, existingStreams.length));
+    
+    // 创建新流程条
+    const now = new Date();
+    const projectStart = project.startDate ? new Date(project.startDate) : now;
+    const fallbackEnd = new Date(projectStart.getTime() + DEFAULT_PROJECT_DURATION_DAYS * MS_PER_DAY);
+    const projectEnd = project.endDate ? new Date(project.endDate) : fallbackEnd;
+    
+    // 以点击日期为中心，创建流程条
+    const startMs = Math.max(
+      projectStart.getTime(),
+      clickDate.getTime() - (DEFAULT_STREAM_DURATION_DAYS * MS_PER_DAY / 2)
+    );
+    let endMs = Math.min(
+      projectEnd.getTime(),
+      startMs + DEFAULT_STREAM_DURATION_DAYS * MS_PER_DAY
+    );
+    if (endMs <= startMs) {
+      endMs = startMs + STREAM_MIN_DURATION_MS;
+    }
+    
+    // 为新流程条分配颜色（根据索引循环使用预设颜色）
+    const colorIndex = existingStreams.length % STREAM_COLOR_PRESETS.length;
+    const newStream = {
+      id: createUniqueId('stream'),
+      label: '未命名流程',
+      startDate: new Date(startMs).toISOString(),
+      endDate: new Date(endMs).toISOString(),
+      deadlines: [newDeadline], // 直接包含小红旗
+      color: colorIndex // 分配颜色
+    };
+    
+    // 插入到指定位置
+    const updatedStreams = [...existingStreams];
+    updatedStreams.splice(rowIndex, 0, newStream);
+    
+    const updatedProjects = projects.map(p => {
+      if (p.id !== projectId) return p;
+      return {
+        ...p,
+        streams: updatedStreams
+      };
+    });
+    
+    saveProjects(updatedProjects);
+    return; // 已经完成，直接返回
+  }
+  
+  // 如果找到了流程条，添加新的deadline到该流程条（在流程条上右键但不在交互元素上）
+  // 注意：这个分支实际上不会执行，因为如果找到流程条，已经在上面返回了
+  // 保留此代码以防逻辑变化
+  if (targetStreamId) {
+    const updatedProjects = projects.map(project => {
+      if (project.id !== projectId) return project;
+      return {
+        ...project,
+        streams: (project.streams || []).map(stream => {
+          if (stream.id !== targetStreamId) return stream;
+          const deadlines = stream.deadlines || [];
+          return {
+            ...stream,
+            deadlines: [...deadlines, newDeadline]
+          };
+        })
+      };
+    });
+    saveProjects(updatedProjects);
+  }
+}
+
+// 显示流程条颜色选择菜单
+function showStreamColorMenu(event, streamNode, streamId, projectId) {
+  // 移除已存在的颜色菜单
+  const existingMenu = document.getElementById('streamColorMenu');
+  if (existingMenu) {
+    existingMenu.remove();
+  }
+  
+  const menu = document.createElement('div');
+  menu.id = 'streamColorMenu';
+  menu.className = 'stream-color-menu';
+  menu.style.position = 'fixed';
+  menu.style.zIndex = '10000';
+  
+  const title = document.createElement('div');
+  title.className = 'stream-color-menu-title';
+  title.textContent = '选择颜色';
+  menu.appendChild(title);
+  
+  const colorGrid = document.createElement('div');
+  colorGrid.className = 'stream-color-grid';
+  
+  STREAM_COLOR_PRESETS.forEach((color, index) => {
+    const colorBtn = document.createElement('button');
+    colorBtn.className = 'stream-color-option';
+    colorBtn.style.backgroundColor = `rgb(${color.bg})`;
+    colorBtn.style.borderColor = `rgb(${color.text})`;
+    colorBtn.title = `颜色 ${index + 1}`;
+    
+    // 标记当前颜色
+    const currentColorIndex = parseInt(streamNode.dataset.colorIndex || '0', 10);
+    if (index === currentColorIndex) {
+      colorBtn.classList.add('active');
+      colorBtn.innerHTML = '✓';
+    }
+    
+    colorBtn.addEventListener('click', () => {
+      updateStreamColor(projectId, streamId, index);
+      menu.remove();
+    });
+    
+    colorGrid.appendChild(colorBtn);
+  });
+  
+  menu.appendChild(colorGrid);
+  
+  // 添加删除按钮
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'stream-delete-btn';
+  deleteBtn.textContent = '删除流程条';
+  deleteBtn.addEventListener('click', () => {
+    menu.remove();
+    removeStream(projectId, streamId);
+  });
+  menu.appendChild(deleteBtn);
+  
+  document.body.appendChild(menu);
+  
+  // 计算菜单位置，确保不超出窗口边界
+  const menuRect = menu.getBoundingClientRect();
+  const windowWidth = window.innerWidth || document.documentElement.clientWidth;
+  const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+  const menuWidth = menuRect.width;
+  const menuHeight = menuRect.height;
+  
+  let left = event.clientX;
+  let top = event.clientY;
+  
+  // 如果右侧超出，向左调整
+  if (left + menuWidth > windowWidth) {
+    left = windowWidth - menuWidth - 10; // 留10px边距
+  }
+  
+  // 如果底部超出，向上调整
+  if (top + menuHeight > windowHeight) {
+    top = windowHeight - menuHeight - 10; // 留10px边距
+  }
+  
+  // 确保不超出左边界和上边界
+  left = Math.max(10, left);
+  top = Math.max(10, top);
+  
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  
+  // 点击外部关闭菜单
+  const closeMenu = (e) => {
+    if (!menu.contains(e.target)) {
+      menu.remove();
+      document.removeEventListener('click', closeMenu);
+      document.removeEventListener('contextmenu', closeMenu);
+    }
+  };
+  
+  setTimeout(() => {
+    document.addEventListener('click', closeMenu);
+    document.addEventListener('contextmenu', closeMenu);
+  }, 0);
+}
+
+// 更新流程条颜色
+function updateStreamColor(projectId, streamId, colorIndex) {
+  const updatedProjects = projects.map(project => {
+    if (project.id !== projectId) return project;
+    return {
+      ...project,
+      streams: (project.streams || []).map(stream => {
+        if (stream.id !== streamId) return stream;
+        return {
+          ...stream,
+          color: colorIndex
+        };
+      })
+    };
+  });
+  saveProjects(updatedProjects);
+  
+  // 立即更新UI
+  const streamNode = document.querySelector(`.timeline-stream[data-stream-id="${streamId}"]`);
+  if (streamNode) {
+    applyStreamColor(streamNode, colorIndex);
+  }
+}
+
+function renderDeadlineFlags(streamNode, deadlines, windowStart, windowEnd, projectId, streamId) {
+  // 清除已有的小红旗（通过data属性查找）
+  const timeline = streamNode.parentElement;
+  if (timeline) {
+    timeline.querySelectorAll(`.deadline-flag[data-stream-id="${streamId}"]`).forEach(flag => flag.remove());
+  }
+  
+  if (!timeline) return;
+  
+  deadlines.forEach(deadline => {
+    const flag = createDeadlineFlag(deadline, windowStart, windowEnd, projectId, streamId, streamNode);
+    timeline.appendChild(flag);
+  });
+}
+
+function createDeadlineFlag(deadline, windowStart, windowEnd, projectId, streamId, streamNode) {
+  const flag = document.createElement('div');
+  flag.className = 'deadline-flag';
+  flag.dataset.deadlineId = deadline.id;
+  flag.dataset.projectId = projectId;
+  flag.dataset.streamId = streamId;
+  
+  const flagIcon = document.createElement('img');
+  flagIcon.src = 'icon/target.png';
+  flagIcon.alt = 'DDL';
+  flagIcon.className = 'deadline-flag-icon';
+  
+  flag.appendChild(flagIcon);
+  
+  // 计算位置
+  const deadlineDate = new Date(deadline.date);
+  const windowStartMs = windowStart.getTime();
+  const windowEndMs = windowEnd.getTime();
+  const totalMs = windowEndMs - windowStartMs;
+  const deadlineMs = deadlineDate.getTime();
+  
+  if (deadlineMs >= windowStartMs && deadlineMs <= windowEndMs) {
+    const ratio = (deadlineMs - windowStartMs) / totalMs;
+    flag.style.left = `${ratio * 100}%`;
+    
+    // 根据streamNode的位置设置top（流程条上方）
+    // 使用setTimeout确保DOM已渲染
+    setTimeout(() => {
+      const streamTop = streamNode.offsetTop || 0;
+      flag.style.top = `${streamTop - 20}px`;
+    }, 0);
+  } else {
+    flag.style.display = 'none';
+  }
+  
+  // 添加comment提示
+  if (deadline.comment) {
+    flag.title = deadline.comment;
+    flag.classList.add('has-comment');
+  } else {
+    flag.title = '点击添加备注';
+  }
+  
+  // 点击小红旗添加/编辑comment
+  flag.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showDeadlineCommentEditor(flag, deadline, projectId, streamId);
+  });
+  
+  // 右键删除
+  flag.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirm('确定要删除这个DDL吗？')) {
+      removeDeadline(projectId, streamId, deadline.id);
+    }
+  });
+  
+  return flag;
+}
+
+function showDeadlineCommentEditor(flagElement, deadline, projectId, streamId) {
+  // 移除已有的编辑器
+  const existingEditor = document.querySelector('.deadline-comment-editor');
+  if (existingEditor) {
+    existingEditor.remove();
+  }
+  
+  const editor = document.createElement('div');
+  editor.className = 'deadline-comment-editor';
+  
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'deadline-comment-input';
+  input.value = deadline.comment || '';
+  input.placeholder = '输入备注...';
+  
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'deadline-comment-save';
+  saveBtn.textContent = '保存';
+  
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'deadline-comment-cancel';
+  cancelBtn.textContent = '取消';
+  
+  editor.appendChild(input);
+  editor.appendChild(saveBtn);
+  editor.appendChild(cancelBtn);
+  
+  // 定位编辑器
+  const rect = flagElement.getBoundingClientRect();
+  editor.style.left = `${rect.left}px`;
+  editor.style.top = `${rect.bottom + 5}px`;
+  
+  document.body.appendChild(editor);
+  input.focus();
+  input.select();
+  
+  const saveComment = () => {
+    const comment = input.value.trim();
+    updateDeadlineComment(projectId, streamId, deadline.id, comment);
+    editor.remove();
+  };
+  
+  const cancel = () => {
+    editor.remove();
+  };
+  
+  saveBtn.addEventListener('click', saveComment);
+  cancelBtn.addEventListener('click', cancel);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      saveComment();
+    } else if (e.key === 'Escape') {
+      cancel();
+    }
+  });
+  
+  // 点击外部关闭
+  setTimeout(() => {
+    const closeOnClickOutside = (e) => {
+      if (!editor.contains(e.target) && e.target !== flagElement) {
+        editor.remove();
+        document.removeEventListener('click', closeOnClickOutside);
+      }
+    };
+    document.addEventListener('click', closeOnClickOutside);
+  }, 0);
+}
+
+function updateDeadlineComment(projectId, streamId, deadlineId, comment) {
+  const updatedProjects = projects.map(project => {
+    if (project.id !== projectId) return project;
+    return {
+      ...project,
+      streams: (project.streams || []).map(stream => {
+        if (stream.id !== streamId) return stream;
+        return {
+          ...stream,
+          deadlines: (stream.deadlines || []).map(dl => {
+            if (dl.id === deadlineId) {
+              return { ...dl, comment };
+            }
+            return dl;
+          })
+        };
+      })
+    };
+  });
+  saveProjects(updatedProjects);
+}
+
+function removeDeadline(projectId, streamId, deadlineId) {
+  const updatedProjects = projects.map(project => {
+    if (project.id !== projectId) return project;
+    return {
+      ...project,
+      streams: (project.streams || []).map(stream => {
+        if (stream.id !== streamId) return stream;
+        return {
+          ...stream,
+          deadlines: (stream.deadlines || []).filter(dl => dl.id !== deadlineId)
+        };
+      })
+    };
+  });
+  saveProjects(updatedProjects);
+}
+
+// 删除流程条
+function removeStream(projectId, streamId) {
+  const updatedProjects = projects.map(project => {
+    if (project.id !== projectId) return project;
+    return {
+      ...project,
+      streams: (project.streams || []).filter(stream => stream.id !== streamId)
+    };
+  });
+  saveProjects(updatedProjects);
+}
+
+function getTimelineWindow() {
+  const now = new Date();
+  const windowStart = new Date(now);
+  windowStart.setDate(windowStart.getDate() - 3);
+  const windowEnd = new Date(windowStart);
+  windowEnd.setDate(windowEnd.getDate() + timelineRangeWeeks * 7);
+  return { windowStart, windowEnd };
+}
+
+function buildWeekLabels(startDate, weeks) {
+  const labels = [];
+  for (let i = 0; i < weeks; i++) {
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + i * 7);
+    labels.push(formatWeekLabel(date));
+  }
+  return labels;
+}
+
+function formatWeekLabel(date) {
+  return `${date.getMonth() + 1}.${date.getDate()}`;
+}
+
+function formatDateShort(date) {
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function formatProjectRange(start, end) {
+  const startDate = start ? new Date(start) : new Date();
+  const endDate = end ? new Date(end) : startDate;
+  return `${formatDateShort(startDate)} - ${formatDateShort(endDate)}`;
+}
+
+function formatInputDateHint(value) {
+  if (!value) {
+    return new Date().toISOString().split('T')[0];
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().split('T')[0];
+  }
+  return date.toISOString().split('T')[0];
+}
+
+function parseDateInput(input, fallbackDate) {
+  if (!input) return new Date(fallbackDate);
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date(fallbackDate);
+  }
+  return parsed;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function handleAddStream(projectId) {
+  if (!projects) {
+    projects = [];
+  }
+  let project = null;
+  if (projectId) {
+    project = projects.find(p => p.id === projectId);
+  } else if (projects.length > 0) {
+    project = projects[0];
+  }
+  if (!project) {
+    const now = new Date();
+    const defaultEnd = new Date(now.getTime() + DEFAULT_PROJECT_DURATION_DAYS * MS_PER_DAY);
+    project = {
+      id: createUniqueId('project'),
+      name: '未命名项目',
+      startDate: now.toISOString(),
+      endDate: defaultEnd.toISOString(),
+    streams: []
+  };
+    projects = [project];
+    saveProjects(projects, { silent: true });
+  }
+  const resolvedProjectId = project.id;
+  const projectStart = project.startDate ? new Date(project.startDate) : new Date();
+  const fallbackEnd = new Date(projectStart.getTime() + DEFAULT_PROJECT_DURATION_DAYS * MS_PER_DAY);
+  const projectEnd = project.endDate ? new Date(project.endDate) : fallbackEnd;
+  const now = new Date();
+  const startMs = Math.min(
+    Math.max(now.getTime(), projectStart.getTime()),
+    projectEnd.getTime()
+  );
+  let endMs = Math.min(
+    projectEnd.getTime(),
+    startMs + DEFAULT_STREAM_DURATION_DAYS * MS_PER_DAY
+  );
+  if (endMs <= startMs) {
+    endMs = startMs + STREAM_MIN_DURATION_MS;
+  }
+  // 为新流程条分配颜色（根据现有流程条数量循环使用预设颜色）
+  const existingStreams = project.streams || [];
+  const colorIndex = existingStreams.length % STREAM_COLOR_PRESETS.length;
+  const newStream = {
+    id: createUniqueId('stream'),
+    label: '未命名流程',
+    startDate: new Date(startMs).toISOString(),
+    endDate: new Date(endMs).toISOString(),
+    color: colorIndex // 分配颜色
+  };
+  const updatedProjects = projects.map(p => {
+    if (p.id !== resolvedProjectId) return p;
+    return {
+      ...p,
+      streams: [...(p.streams || []), newStream]
+    };
+  });
+  saveProjects(updatedProjects);
+}
+
+function showNewDayToast(message, options = {}) {
+  const { autoHide = 2000 } = options;
+  let toast = document.getElementById('newDayToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'newDayToast';
+    toast.className = 'toast-notification';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add('show');
+  if (newDayToastTimer) {
+    clearTimeout(newDayToastTimer);
+  }
+  if (autoHide > 0) {
+    newDayToastTimer = setTimeout(() => {
+      toast.classList.remove('show');
+      newDayToastTimer = null;
+    }, autoHide);
+  } else {
+    newDayToastTimer = null;
+  }
+}
+
+function hideNewDayToast() {
+  const toast = document.getElementById('newDayToast');
+  if (toast) {
+    toast.classList.remove('show');
+  }
+  if (newDayToastTimer) {
+    clearTimeout(newDayToastTimer);
+    newDayToastTimer = null;
+  }
+}
+
+function handleNewDayPressStart(event) {
+  if (!newDayBtn) return;
+  if (event.type === 'mousedown' && event.button !== 0) {
+    return;
+  }
+  event.preventDefault();
+  if (newDayPressTimer) {
+    clearTimeout(newDayPressTimer);
+  }
+  newDayBtn.classList.add('pressing');
+  showNewDayToast('Wow new day coming……', { autoHide: 0 });
+  newDayPressTimer = setTimeout(() => {
+    newDayBtn.classList.remove('pressing');
+    newDayPressTimer = null;
+    showNewDayToast('Wow new day coming……');
+    startNewDay();
+  }, NEW_DAY_LONG_PRESS_DURATION);
+}
+
+function handleNewDayPressEnd() {
+  if (newDayPressTimer) {
+    clearTimeout(newDayPressTimer);
+    newDayPressTimer = null;
+  }
+  if (newDayBtn) {
+    newDayBtn.classList.remove('pressing');
+  }
+  hideNewDayToast();
+}
+
+function initNewDayLongPress() {
+  if (!newDayBtn) return;
+  
+  const handleGlobalMouseUp = () => handleNewDayPressEnd();
+  const handleGlobalTouchEnd = () => handleNewDayPressEnd();
+  
+  newDayBtn.addEventListener('mousedown', handleNewDayPressStart);
+  newDayBtn.addEventListener('touchstart', handleNewDayPressStart, { passive: false });
+  
+  ['mouseup', 'touchend', 'touchcancel'].forEach(eventName => {
+    newDayBtn.addEventListener(eventName, handleNewDayPressEnd);
+  });
+  
+  document.addEventListener('mouseup', handleGlobalMouseUp);
+  document.addEventListener('touchend', handleGlobalTouchEnd);
+  document.addEventListener('touchcancel', handleGlobalTouchEnd);
 }
 
 // Add a new todo
@@ -597,6 +2036,8 @@ function setFilter(filter) {
 }
 
 // Event listeners
+initNewDayLongPress();
+
 todoInput.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') {
     addTodo();
@@ -615,7 +2056,6 @@ importBtn.addEventListener('click', (e) => {
   importTodos();
   closeDropdown();
 });
-newDayBtn.addEventListener('click', startNewDay);
 historyBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   showHistory();
@@ -634,12 +2074,59 @@ closeModalBtn.addEventListener('click', closeHistoryModal);
 clearHistoryBtn.addEventListener('click', clearHistory);
 closeSettingsModalBtn.addEventListener('click', closeSettingsModal);
 
+// Header background image upload handlers
+if (uploadHeaderBgBtn && headerBgUpload) {
+  uploadHeaderBgBtn.addEventListener('click', () => {
+    headerBgUpload.click();
+  });
+
+  headerBgUpload.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file.');
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB.');
+        return;
+      }
+
+      // Read file as data URL
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const imageData = event.target.result;
+        saveHeaderBackgroundImage(imageData);
+      };
+      reader.onerror = () => {
+        alert('Failed to read image file.');
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+}
+
+if (resetHeaderBgBtn) {
+  resetHeaderBgBtn.addEventListener('click', () => {
+    chrome.storage.sync.remove('headerBackgroundImage', () => {
+      resetHeaderBackgroundImage();
+    });
+  });
+}
+
 // Close dropdown when clicking outside
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.dropdown')) {
     closeDropdown();
   }
 });
+
+document.addEventListener('pointermove', handleStreamPointerMove);
+document.addEventListener('pointerup', handleStreamPointerUp);
+document.addEventListener('pointercancel', handleStreamPointerUp);
 
 // Close modal when clicking outside
 historyModal.addEventListener('click', (e) => {
@@ -682,17 +2169,40 @@ function initColorPresets() {
   colorPresetsInitialized = true;
 }
 
-// Mode button event listeners
-if (modeGoodMoodBtn) {
-  modeGoodMoodBtn.addEventListener('click', () => {
-    saveMode('goodmood');
+if (viewToggleButtons && viewToggleButtons.length > 0) {
+  viewToggleButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const view = btn.dataset.view || 'tasks';
+      saveViewMode(view);
+    });
   });
 }
 
-if (modeForwardEdgeBtn) {
-  modeForwardEdgeBtn.addEventListener('click', () => {
-    saveMode('forwardedge');
+if (timelineRangeSelect) {
+  // 更新按钮显示文本
+  function updateRangeButtonText() {
+    timelineRangeSelect.textContent = `${timelineRangeWeeks}W`;
+  }
+  
+  // 初始化显示
+  updateRangeButtonText();
+  
+  // 点击循环切换：4W -> 8W -> 12W -> 4W
+  timelineRangeSelect.addEventListener('click', () => {
+    if (timelineRangeWeeks === 4) {
+      timelineRangeWeeks = 8;
+    } else if (timelineRangeWeeks === 8) {
+      timelineRangeWeeks = 12;
+    } else {
+      timelineRangeWeeks = 4;
+    }
+    updateRangeButtonText();
+    renderProjects();
   });
+}
+
+if (addStreamBtn) {
+  addStreamBtn.addEventListener('click', () => handleAddStream());
 }
 
 // Export todos to JSON file
@@ -796,11 +2306,6 @@ function showSettings() {
   settingsModal.style.display = 'block';
   // Ensure color presets are initialized when settings modal is shown
   initColorPresets();
-  // Load current mode to update button states
-  chrome.storage.sync.get(['mode'], (result) => {
-    const mode = result.mode || 'goodmood';
-    applyMode(mode);
-  });
 }
 
 function closeSettingsModal() {
@@ -890,8 +2395,67 @@ function formatHistoryDate(date) {
   const weekday = date.toLocaleString('en-US', { weekday: 'short' });
   return `${day} ${month} ${year}, ${weekday}`;
 }
+ 
 
 // Initialize
 loadTodos();
 initColorPresets();
+
+// 窗口大小改变时，确保项目卡片能够自适应
+let resizeTimeout;
+function handleWindowResize() {
+  // 使用防抖，避免频繁触发
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    // 如果当前在项目视图，重新渲染以确保时间线正确适应新尺寸
+    if (activeView === 'projects' && projectList) {
+      // 时间线使用百分比定位，CSS 会自动适应，但我们可以触发一次重新计算
+      // 主要是为了确保拖拽交互中的 msPerPixel 能够正确更新
+      const timelineStreams = document.querySelectorAll('.timeline-streams');
+      timelineStreams.forEach(streamsContainer => {
+        const streams = streamsContainer.querySelectorAll('.timeline-stream');
+        streams.forEach(streamNode => {
+          const startDate = new Date(streamNode.dataset.startDate);
+          const endDate = new Date(streamNode.dataset.endDate);
+          const windowStart = new Date(streamsContainer.dataset.windowStart);
+          const windowEnd = new Date(streamsContainer.dataset.windowEnd);
+          if (startDate && endDate && windowStart && windowEnd) {
+            setTimelineStreamPosition(streamNode, startDate, endDate, windowStart, windowEnd);
+            updateStreamRangeLabel(streamNode, startDate, endDate);
+          }
+        });
+      });
+    }
+  }, 150);
+}
+
+// 监听窗口大小改变
+window.addEventListener('resize', handleWindowResize);
+
+// 全局测试：检查右键事件是否被捕获
+document.addEventListener('contextmenu', (e) => {
+  const target = e.target;
+  const isInTimeline = target.closest('.timeline-streams') || target.closest('.project-timeline');
+  if (isInTimeline) {
+    console.log('🔍 全局右键事件捕获:', {
+      target: target,
+      targetTagName: target.tagName,
+      targetClassName: target.className,
+      closestTimelineStreams: target.closest('.timeline-streams'),
+      closestProjectTimeline: target.closest('.project-timeline'),
+      clientX: e.clientX,
+      clientY: e.clientY
+    });
+  }
+}, true);
+
+// 添加一个更早的全局监听器来测试
+window.addEventListener('contextmenu', (e) => {
+  console.log('🌐 Window 右键事件（最早）:', {
+    target: e.target,
+    targetTagName: e.target.tagName,
+    targetClassName: e.target.className
+  });
+}, true);
+
 

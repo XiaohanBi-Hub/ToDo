@@ -3,6 +3,7 @@ let todos = [];
 let archivedTodos = [];
 let nextDayTodos = [];
 let projects = [];
+let stocks = []; // 股票观测列表
 let activeView = 'tasks';
 let timelineRangeWeeks = 4;
 let activeStreamInteraction = null;
@@ -56,6 +57,8 @@ const projectEmptyState = document.getElementById('projectEmptyState');
 const timelineRangeSelect = document.getElementById('timelineRangeSelect');
 const addStreamBtn = document.getElementById('addStreamBtn');
 const viewToggleButtons = document.querySelectorAll('.view-toggle-btn');
+const stockList = document.getElementById('stockList');
+const addStockBtn = document.getElementById('addStockBtn');
 
 const NEW_DAY_LONG_PRESS_DURATION = 1000;
 let newDayPressTimer = null;
@@ -63,7 +66,7 @@ let newDayToastTimer = null;
 const TODO_DATA_KEYS = ['todos', 'archivedTodos', 'nextDayTodos'];
 const TODO_STATE_META_KEY = 'todosUpdatedAt';
 const TODO_STORAGE_KEYS = [...TODO_DATA_KEYS, TODO_STATE_META_KEY];
-const SETTINGS_STORAGE_KEYS = ['backgroundColor', 'projects', 'activeView', 'headerBackgroundImage'];
+const SETTINGS_STORAGE_KEYS = ['backgroundColor', 'projects', 'activeView', 'headerBackgroundImage', 'stocks'];
 const todoStorageArea = chrome.storage && chrome.storage.local ? chrome.storage.local : chrome.storage.sync;
 const syncStorageArea = chrome.storage && chrome.storage.sync ? chrome.storage.sync : chrome.storage.local;
 const shouldSyncLightweightTodos = Boolean(syncStorageArea && syncStorageArea !== todoStorageArea);
@@ -116,6 +119,14 @@ function loadTodos() {
     activeView = data.activeView || 'tasks';
     applyViewMode(activeView);
     renderProjects();
+    
+    // Load stocks
+    stocks = data.stocks || [];
+    if (activeView === 'projects') {
+      renderStocks(true); // 加载时如果已在项目视图，则更新股票数据
+    } else {
+      renderStocks(false); // 否则只渲染，不更新
+    }
   };
 
   if (!shouldSyncLightweightTodos) {
@@ -261,6 +272,7 @@ function applyViewMode(view = 'tasks') {
   }
   if (view === 'projects') {
     renderProjects();
+    renderStocks(true); // 切换到项目视图时更新股票数据
   }
 }
 
@@ -392,6 +404,223 @@ function renderProjects() {
   projects.forEach(project => {
     projectList.appendChild(createProjectTimelineBlock(project, windowStart, windowEnd));
   });
+}
+
+// Stock functions
+let isUpdatingStocks = false;
+
+function saveStocks() {
+  chrome.storage.sync.set({ stocks }, () => {
+    if (!isUpdatingStocks) {
+      renderStocks();
+    }
+  });
+}
+
+function renderStocks(shouldUpdate = false) {
+  if (!stockList) return;
+  stockList.innerHTML = '';
+  
+  if (!stocks || stocks.length === 0) {
+    const emptyDiv = document.createElement('div');
+    emptyDiv.className = 'stock-empty';
+    emptyDiv.textContent = '暂无股票，点击 + 添加';
+    stockList.appendChild(emptyDiv);
+    return;
+  }
+  
+  // 渲染每个股票项
+  stocks.forEach(stock => {
+    const stockItem = createStockItem(stock);
+    stockList.appendChild(stockItem);
+  });
+  
+  // 只有在明确需要更新时才更新股票数据
+  if (shouldUpdate && !isUpdatingStocks) {
+    updateAllStocks();
+  }
+}
+
+function createStockItem(stock) {
+  const item = document.createElement('div');
+  item.className = 'stock-item';
+  item.dataset.symbol = stock.symbol;
+  
+  const info = document.createElement('div');
+  info.className = 'stock-item-info';
+  
+  const symbol = document.createElement('div');
+  symbol.className = 'stock-symbol';
+  symbol.textContent = stock.symbol || 'N/A';
+  
+  const name = document.createElement('div');
+  name.className = 'stock-name';
+  name.textContent = stock.name || '';
+  
+  info.appendChild(symbol);
+  info.appendChild(name);
+  
+  const priceInfo = document.createElement('div');
+  priceInfo.className = 'stock-price-info';
+  
+  const price = document.createElement('div');
+  price.className = 'stock-price';
+  price.textContent = stock.price ? `$${parseFloat(stock.price).toFixed(2)}` : '--';
+  
+  const change = document.createElement('div');
+  change.className = 'stock-change';
+  if (stock.change !== undefined && stock.changePercent !== undefined) {
+    const changeValue = parseFloat(stock.change);
+    const changePercent = parseFloat(stock.changePercent);
+    change.textContent = `${changeValue >= 0 ? '+' : ''}${changeValue.toFixed(2)} (${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%)`;
+    change.classList.add(changeValue > 0 ? 'positive' : changeValue < 0 ? 'negative' : 'neutral');
+  } else {
+    change.textContent = '--';
+    change.classList.add('neutral');
+  }
+  
+  priceInfo.appendChild(price);
+  priceInfo.appendChild(change);
+  
+  const actions = document.createElement('div');
+  actions.className = 'stock-item-actions';
+  
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'stock-delete-btn';
+  deleteBtn.textContent = '×';
+  deleteBtn.title = '删除';
+  deleteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    removeStock(stock.symbol);
+  });
+  
+  actions.appendChild(deleteBtn);
+  
+  item.appendChild(info);
+  item.appendChild(priceInfo);
+  item.appendChild(actions);
+  
+  return item;
+}
+
+async function fetchStockData(symbol) {
+  try {
+    // 使用 Yahoo Finance API (免费，无需 API key)
+    // 注意：由于 CORS 限制，可能需要使用代理或后端服务
+    // 这里使用一个公开的 API 端点
+    const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}?interval=1d&range=1d`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch stock data');
+    }
+    
+    const data = await response.json();
+    
+    if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+      throw new Error('Invalid stock symbol');
+    }
+    
+    const result = data.chart.result[0];
+    const meta = result.meta;
+    const quote = result.indicators.quote[0];
+    
+    const currentPrice = meta.regularMarketPrice || meta.previousClose || 0;
+    const previousClose = meta.previousClose || currentPrice;
+    const change = currentPrice - previousClose;
+    const changePercent = previousClose !== 0 ? (change / previousClose) * 100 : 0;
+    
+    return {
+      symbol: symbol.toUpperCase(),
+      name: meta.longName || meta.shortName || symbol.toUpperCase(),
+      price: currentPrice,
+      change: change,
+      changePercent: changePercent,
+      lastUpdate: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Error fetching stock data:', error);
+    // 返回模拟数据作为后备
+    return {
+      symbol: symbol.toUpperCase(),
+      name: symbol.toUpperCase(),
+      price: 0,
+      change: 0,
+      changePercent: 0,
+      lastUpdate: new Date().toISOString()
+    };
+  }
+}
+
+async function updateAllStocks() {
+  if (!stocks || stocks.length === 0 || isUpdatingStocks) return;
+  
+  isUpdatingStocks = true;
+  
+  try {
+    // 更新所有股票数据
+    const updatePromises = stocks.map(async (stock) => {
+      const updatedData = await fetchStockData(stock.symbol);
+      return {
+        ...stock,
+        ...updatedData
+      };
+    });
+    
+    const updatedStocks = await Promise.all(updatePromises);
+    stocks = updatedStocks;
+    chrome.storage.sync.set({ stocks }, () => {
+      renderStocks();
+      isUpdatingStocks = false;
+    });
+  } catch (error) {
+    console.error('Error updating stocks:', error);
+    isUpdatingStocks = false;
+    renderStocks();
+  }
+}
+
+function addStock() {
+  const symbol = prompt('请输入股票代码（例如：AAPL, TSLA, MSFT）:');
+  if (!symbol || !symbol.trim()) {
+    return;
+  }
+  
+  const symbolUpper = symbol.trim().toUpperCase();
+  
+  // 检查是否已存在
+  if (stocks.some(s => s.symbol === symbolUpper)) {
+    alert('该股票已在列表中');
+    return;
+  }
+  
+  // 添加新股票
+  const newStock = {
+    symbol: symbolUpper,
+    name: symbolUpper,
+    price: 0,
+    change: 0,
+    changePercent: 0,
+    lastUpdate: new Date().toISOString()
+  };
+  
+  stocks.push(newStock);
+  saveStocks();
+  
+  // 立即获取数据
+  fetchStockData(symbolUpper).then(data => {
+    const index = stocks.findIndex(s => s.symbol === symbolUpper);
+    if (index !== -1) {
+      stocks[index] = { ...stocks[index], ...data };
+      saveStocks();
+    }
+  });
+}
+
+function removeStock(symbol) {
+  if (confirm(`确定要删除 ${symbol} 吗？`)) {
+    stocks = stocks.filter(s => s.symbol !== symbol);
+    saveStocks();
+  }
 }
 
 function createProjectTimelineBlock(project, windowStart, windowEnd) {
@@ -2203,6 +2432,10 @@ if (timelineRangeSelect) {
 
 if (addStreamBtn) {
   addStreamBtn.addEventListener('click', () => handleAddStream());
+}
+
+if (addStockBtn) {
+  addStockBtn.addEventListener('click', () => addStock());
 }
 
 // Export todos to JSON file

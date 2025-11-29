@@ -1145,6 +1145,181 @@ body {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
 }
 
+.stock-watch-list {
+  margin-top: 30px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.stock-watch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.stock-watch-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+}
+
+.add-stock-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #efeded;
+  color: #302f2f;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.add-stock-btn:hover {
+  background: #e0e0e0;
+  transform: scale(1.1);
+}
+
+.stock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.stock-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: #fafafa;
+  border-radius: 6px;
+  transition: background 0.2s ease;
+  cursor: pointer;
+}
+
+.stock-item:hover {
+  background: #f5f5f5;
+}
+
+.stock-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.stock-symbol {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.stock-name {
+  font-size: 11px;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stock-price-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.stock-price {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.stock-change {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.stock-change.positive {
+  color: #4caf50;
+}
+
+.stock-change.negative {
+  color: #f44336;
+}
+
+.stock-change.neutral {
+  color: #999;
+}
+
+.stock-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.stock-item:hover .stock-item-actions {
+  opacity: 1;
+}
+
+.stock-delete-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: #ff4444;
+  color: white;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.stock-delete-btn:hover {
+  background: #ff2222;
+  transform: scale(1.1);
+}
+
+.stock-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.stock-list::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 999px;
+}
+
+.stock-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.stock-empty {
+  text-align: center;
+  padding: 20px;
+  color: #999;
+  font-size: 12px;
+}
+
 .project-list {
   display: flex;
   flex-direction: column;

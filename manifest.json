@@ -18,6 +18,12 @@
   },
   "permissions": [
     "storage"
+  ],
+  "host_permissions": [
+    "https://query1.finance.yahoo.com/*"
   ]
 }
+
+
+
 

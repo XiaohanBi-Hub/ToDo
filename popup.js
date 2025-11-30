@@ -55,6 +55,7 @@ const headerBgPreviewImg = document.getElementById('headerBgPreviewImg');
 const taskView = document.getElementById('taskView');
 const projectView = document.getElementById('projectView');
 const stockDashboardView = document.getElementById('stockDashboardView');
+const currentDateDisplay = document.getElementById('currentDateDisplay');
 const projectList = document.getElementById('projectList');
 const projectEmptyState = document.getElementById('projectEmptyState');
 const timelineRangeSelect = document.getElementById('timelineRangeSelect');
@@ -282,6 +283,8 @@ function applyViewMode(view = 'tasks') {
   }
   if (view === 'projects') {
     renderProjects();
+  } else if (view === 'tasks') {
+    updateCurrentDateDisplay();
   }
 }
 
@@ -488,34 +491,58 @@ function createStockItem(stock) {
   symbol.className = 'stock-symbol';
   symbol.textContent = stock.symbol || 'N/A';
   
-  const name = document.createElement('div');
-  name.className = 'stock-name';
-  name.textContent = stock.name || '';
-  
   info.appendChild(symbol);
-  info.appendChild(name);
   
   const priceInfo = document.createElement('div');
   priceInfo.className = 'stock-price-info';
   
   const price = document.createElement('div');
   price.className = 'stock-price';
-  price.textContent = stock.price ? `$${parseFloat(stock.price).toFixed(2)}` : '--';
+  price.textContent = stock.price ? `$${parseFloat(stock.price).toFixed(1)}` : '--';
   
-  const change = document.createElement('div');
+  // 涨跌幅和 YTD/WTD 放在同一行
+  const changeRow = document.createElement('div');
+  changeRow.className = 'stock-change-row';
+  
+  const change = document.createElement('span');
   change.className = 'stock-change';
   if (stock.change !== undefined && stock.changePercent !== undefined) {
     const changeValue = parseFloat(stock.change);
     const changePercent = parseFloat(stock.changePercent);
-    change.textContent = `${changeValue >= 0 ? '+' : ''}${changeValue.toFixed(2)} (${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%)`;
+    change.textContent = `${changeValue >= 0 ? '+' : ''}${changeValue.toFixed(1)} (${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(1)}%)`;
     change.classList.add(changeValue > 0 ? 'positive' : changeValue < 0 ? 'negative' : 'neutral');
   } else {
     change.textContent = '--';
     change.classList.add('neutral');
   }
   
+  // YTD 和 WTD
+  let ytdText = '';
+  let wtdText = '';
+  
+  if (stock.ytdPercent !== undefined) {
+    const ytdValue = parseFloat(stock.ytdPercent);
+    ytdText = `YTD: ${ytdValue >= 0 ? '+' : ''}${ytdValue.toFixed(1)}%`;
+  } else {
+    ytdText = 'YTD: --';
+  }
+  
+  if (stock.wtdPercent !== undefined) {
+    const wtdValue = parseFloat(stock.wtdPercent);
+    wtdText = `WTD: ${wtdValue >= 0 ? '+' : ''}${wtdValue.toFixed(1)}%`;
+  } else {
+    wtdText = 'WTD: --';
+  }
+  
+  const ytdWtd = document.createElement('span');
+  ytdWtd.className = 'stock-ytd-wtd';
+  ytdWtd.textContent = ` | ${ytdText} | ${wtdText}`;
+  
+  changeRow.appendChild(change);
+  changeRow.appendChild(ytdWtd);
+  
   priceInfo.appendChild(price);
-  priceInfo.appendChild(change);
+  priceInfo.appendChild(changeRow);
   
   const actions = document.createElement('div');
   actions.className = 'stock-item-actions';
@@ -544,36 +571,119 @@ function createStockItem(stock) {
 
 async function fetchStockData(symbol) {
   try {
-    // 使用 Yahoo Finance API (免费，无需 API key)
-    // 注意：由于 CORS 限制，可能需要使用代理或后端服务
-    // 这里使用一个公开的 API 端点
-    const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol.toUpperCase()}?interval=1d&range=1d`);
+    const symbolUpper = symbol.toUpperCase();
     
-    if (!response.ok) {
+    // 获取当前数据
+    const currentResponse = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbolUpper}?interval=1d&range=1d`);
+    if (!currentResponse.ok) {
       throw new Error('Failed to fetch stock data');
     }
+    const currentData = await currentResponse.json();
     
-    const data = await response.json();
-    
-    if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+    if (!currentData.chart || !currentData.chart.result || currentData.chart.result.length === 0) {
       throw new Error('Invalid stock symbol');
     }
     
-    const result = data.chart.result[0];
-    const meta = result.meta;
-    const quote = result.indicators.quote[0];
-    
+    const currentResult = currentData.chart.result[0];
+    const meta = currentResult.meta;
     const currentPrice = meta.regularMarketPrice || meta.previousClose || 0;
     const previousClose = meta.previousClose || currentPrice;
     const change = currentPrice - previousClose;
     const changePercent = previousClose !== 0 ? (change / previousClose) * 100 : 0;
     
+    // 获取年初数据（YTD）- 获取1年的数据，找到年初价格
+    let ytdPercent = 0;
+    try {
+      const ytdResponse = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbolUpper}?interval=1d&range=1y`);
+      if (ytdResponse.ok) {
+        const ytdData = await ytdResponse.json();
+        if (ytdData.chart && ytdData.chart.result && ytdData.chart.result.length > 0) {
+          const ytdResult = ytdData.chart.result[0];
+          const timestamps = ytdResult.timestamp || [];
+          const quotes = ytdResult.indicators?.quote?.[0];
+          
+          if (timestamps.length > 0 && quotes && quotes.close) {
+            // 找到年初（1月1日）的价格
+            const now = new Date();
+            const yearStart = new Date(now.getFullYear(), 0, 1).getTime() / 1000;
+            
+            // 找到最接近年初的时间戳
+            let ytdStartPrice = null;
+            for (let i = 0; i < timestamps.length; i++) {
+              if (timestamps[i] >= yearStart) {
+                ytdStartPrice = quotes.close[i] || quotes.close[i - 1];
+                break;
+              }
+            }
+            
+            // 如果没找到，使用第一个数据点
+            if (ytdStartPrice === null && quotes.close.length > 0) {
+              ytdStartPrice = quotes.close[0];
+            }
+            
+            if (ytdStartPrice && ytdStartPrice > 0) {
+              ytdPercent = ((currentPrice - ytdStartPrice) / ytdStartPrice) * 100;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.log('YTD calculation failed:', e);
+    }
+    
+    // 获取本周开始数据（WTD）- 获取1个月的数据，找到本周一价格
+    let wtdPercent = 0;
+    try {
+      const wtdResponse = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbolUpper}?interval=1d&range=1mo`);
+      if (wtdResponse.ok) {
+        const wtdData = await wtdResponse.json();
+        if (wtdData.chart && wtdData.chart.result && wtdData.chart.result.length > 0) {
+          const wtdResult = wtdData.chart.result[0];
+          const timestamps = wtdResult.timestamp || [];
+          const quotes = wtdResult.indicators?.quote?.[0];
+          
+          if (timestamps.length > 0 && quotes && quotes.close) {
+            // 找到本周一的价格
+            const now = new Date();
+            const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+            const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            const monday = new Date(now);
+            monday.setDate(now.getDate() - daysToMonday);
+            monday.setHours(0, 0, 0, 0);
+            const mondayTimestamp = monday.getTime() / 1000;
+            
+            // 找到最接近周一的时间戳
+            let wtdStartPrice = null;
+            for (let i = 0; i < timestamps.length; i++) {
+              if (timestamps[i] >= mondayTimestamp) {
+                wtdStartPrice = quotes.close[i] || quotes.close[i - 1];
+                break;
+              }
+            }
+            
+            // 如果没找到，使用第一个数据点
+            if (wtdStartPrice === null && quotes.close.length > 0) {
+              wtdStartPrice = quotes.close[0];
+            }
+            
+            if (wtdStartPrice && wtdStartPrice > 0) {
+              wtdPercent = ((currentPrice - wtdStartPrice) / wtdStartPrice) * 100;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.log('WTD calculation failed:', e);
+    }
+    
     return {
-      symbol: symbol.toUpperCase(),
-      name: meta.longName || meta.shortName || symbol.toUpperCase(),
+      symbol: symbolUpper,
+      name: meta.longName || meta.shortName || symbolUpper,
       price: currentPrice,
       change: change,
       changePercent: changePercent,
+      ytdPercent: ytdPercent,
+      wtdPercent: wtdPercent,
       lastUpdate: new Date().toISOString()
     };
   } catch (error) {
@@ -585,6 +695,8 @@ async function fetchStockData(symbol) {
       price: 0,
       change: 0,
       changePercent: 0,
+      ytdPercent: 0,
+      wtdPercent: 0,
       lastUpdate: new Date().toISOString()
     };
   }
@@ -2184,6 +2296,11 @@ function renderTodos() {
   filteredTodos.forEach(todo => {
     renderTodoItem(todo, false);
   });
+  
+  // 更新日期显示
+  if (activeView === 'tasks') {
+    updateCurrentDateDisplay();
+  }
 }
 
 // Render a single todo item (can be main todo or subtask)
@@ -2879,6 +2996,22 @@ function formatHistoryDate(date) {
   const year = date.toLocaleString('en-US', { year: '2-digit' });
   const weekday = date.toLocaleString('en-US', { weekday: 'short' });
   return `${day} ${month} ${year}, ${weekday}`;
+}
+
+// 格式化当前日期显示（Mon 1 Dec）
+function formatCurrentDate(date) {
+  const weekday = date.toLocaleString('en-US', { weekday: 'short' });
+  const day = date.getDate();
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  return `${weekday} ${day} ${month}`;
+}
+
+// 更新日期显示
+function updateCurrentDateDisplay() {
+  if (currentDateDisplay) {
+    const today = new Date();
+    currentDateDisplay.textContent = formatCurrentDate(today);
+  }
 }
  
 

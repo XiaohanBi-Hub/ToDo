@@ -5,8 +5,10 @@ let nextDayTodos = [];
 let projects = [];
 let stocks = []; // 股票观测列表
 let activeView = 'tasks';
+let isStockDashboardOpen = false; // 是否在股票观测dashboard
 let timelineRangeWeeks = 4;
 let activeStreamInteraction = null;
+let activeStockInteraction = null; // 股票拖拽交互状态
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const STREAM_MIN_DURATION_MS = MS_PER_DAY;
@@ -52,6 +54,7 @@ const headerBgPreview = document.getElementById('headerBgPreview');
 const headerBgPreviewImg = document.getElementById('headerBgPreviewImg');
 const taskView = document.getElementById('taskView');
 const projectView = document.getElementById('projectView');
+const stockDashboardView = document.getElementById('stockDashboardView');
 const projectList = document.getElementById('projectList');
 const projectEmptyState = document.getElementById('projectEmptyState');
 const timelineRangeSelect = document.getElementById('timelineRangeSelect');
@@ -59,6 +62,7 @@ const addStreamBtn = document.getElementById('addStreamBtn');
 const viewToggleButtons = document.querySelectorAll('.view-toggle-btn');
 const stockList = document.getElementById('stockList');
 const addStockBtn = document.getElementById('addStockBtn');
+const stockDashboardBtn = document.getElementById('stockDashboardBtn');
 
 const NEW_DAY_LONG_PRESS_DURATION = 1000;
 let newDayPressTimer = null;
@@ -87,14 +91,14 @@ function loadTodos() {
     }));
     renderTodos();
   };
-
+    
   const applySettingsData = (data = {}) => {
     const bgColor = data.backgroundColor || '#f5f5f5';
     applyBackgroundColor(bgColor);
     if (backgroundColorPicker) {
       backgroundColorPicker.value = bgColor;
     }
-
+    
     // Apply header background image
     if (data.headerBackgroundImage) {
       applyHeaderBackgroundImage(data.headerBackgroundImage);
@@ -255,6 +259,12 @@ function saveHeaderBackgroundImage(imageData) {
 
 function applyViewMode(view = 'tasks') {
   activeView = view;
+  
+  // 如果股票观测dashboard打开，先关闭它
+  if (isStockDashboardOpen) {
+    toggleStockDashboard(false);
+  }
+  
   if (taskView) {
     taskView.classList.toggle('hidden', view !== 'tasks');
   }
@@ -272,7 +282,32 @@ function applyViewMode(view = 'tasks') {
   }
   if (view === 'projects') {
     renderProjects();
-    renderStocks(true); // 切换到项目视图时更新股票数据
+  }
+}
+
+// 切换股票观测dashboard
+function toggleStockDashboard(open) {
+  isStockDashboardOpen = open;
+  
+  if (stockDashboardView) {
+    stockDashboardView.classList.toggle('visible', open);
+    stockDashboardView.setAttribute('aria-hidden', open ? 'false' : 'true');
+  }
+  
+  // 隐藏其他视图
+  if (open) {
+    if (taskView) {
+      taskView.classList.add('hidden');
+    }
+    if (projectView) {
+      projectView.classList.remove('visible');
+      projectView.setAttribute('aria-hidden', 'true');
+    }
+    // 渲染股票数据
+    renderStocks(true);
+  } else {
+    // 恢复之前的视图
+    applyViewMode(activeView);
   }
 }
 
@@ -484,7 +519,7 @@ function createStockItem(stock) {
   
   const actions = document.createElement('div');
   actions.className = 'stock-item-actions';
-  
+
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'stock-delete-btn';
   deleteBtn.textContent = '×';
@@ -499,6 +534,10 @@ function createStockItem(stock) {
   item.appendChild(info);
   item.appendChild(priceInfo);
   item.appendChild(actions);
+  
+  // 添加拖拽排序功能
+  item.addEventListener('pointerdown', (event) => handleStockPointerDown(event));
+  item.style.cursor = 'grab';
   
   return item;
 }
@@ -580,7 +619,7 @@ async function updateAllStocks() {
 }
 
 function addStock() {
-  const symbol = prompt('请输入股票代码（例如：AAPL, TSLA, MSFT）:');
+  const symbol = prompt('');
   if (!symbol || !symbol.trim()) {
     return;
   }
@@ -589,7 +628,6 @@ function addStock() {
   
   // 检查是否已存在
   if (stocks.some(s => s.symbol === symbolUpper)) {
-    alert('该股票已在列表中');
     return;
   }
   
@@ -617,10 +655,164 @@ function addStock() {
 }
 
 function removeStock(symbol) {
-  if (confirm(`确定要删除 ${symbol} 吗？`)) {
-    stocks = stocks.filter(s => s.symbol !== symbol);
-    saveStocks();
+  stocks = stocks.filter(s => s.symbol !== symbol);
+  saveStocks();
+}
+
+// 股票拖拽排序处理函数
+function handleStockPointerDown(event) {
+  // 忽略非左键点击和删除按钮点击
+  if (event.button !== 0 && event.pointerType !== 'touch') return;
+  if (event.target.closest('.stock-delete-btn')) return;
+  
+  const stockItem = event.currentTarget;
+  const symbol = stockItem.dataset.symbol;
+  const stockList = stockItem.parentElement;
+  const allStocks = Array.from(stockList.querySelectorAll('.stock-item'));
+  const initialIndex = allStocks.indexOf(stockItem);
+  
+  if (initialIndex === -1) return;
+  
+  stockItem.setPointerCapture(event.pointerId);
+  
+  const rect = stockItem.getBoundingClientRect();
+  const initialTop = rect.top;
+  const pointerStartY = event.clientY;
+  
+  activeStockInteraction = {
+    node: stockItem,
+    symbol: symbol,
+    initialIndex: initialIndex,
+    targetIndex: initialIndex,
+    pointerId: event.pointerId,
+    pointerStartY: pointerStartY,
+    initialTop: initialTop,
+    isDragging: false
+  };
+  
+  // 添加全局事件监听器
+  document.addEventListener('pointermove', handleStockPointerMove);
+  document.addEventListener('pointerup', handleStockPointerUp);
+  
+  event.preventDefault();
+}
+
+function handleStockPointerMove(event) {
+  if (!activeStockInteraction) return;
+  const interaction = activeStockInteraction;
+  
+  const deltaY = event.clientY - interaction.pointerStartY;
+  const absDeltaY = Math.abs(deltaY);
+  
+  // 如果移动距离超过10px，开始拖拽
+  if (!interaction.isDragging && absDeltaY > 10) {
+    interaction.isDragging = true;
+    interaction.node.classList.add('dragging');
+    interaction.node.style.cursor = 'grabbing';
   }
+  
+  if (!interaction.isDragging) return;
+  
+  const stockList = interaction.node.parentElement;
+  const allStocks = Array.from(stockList.querySelectorAll('.stock-item'));
+  
+  // 计算每个股票项的高度（包括gap）
+  const firstItemRect = allStocks[0]?.getBoundingClientRect();
+  const secondItemRect = allStocks[1]?.getBoundingClientRect();
+  const itemHeight = firstItemRect && secondItemRect 
+    ? secondItemRect.top - firstItemRect.top 
+    : interaction.node.offsetHeight + 6;
+  
+  const stockListRect = stockList.getBoundingClientRect();
+  const currentY = interaction.initialTop + deltaY;
+  
+  // 计算目标索引
+  const relativeY = currentY - stockListRect.top;
+  const targetIndex = Math.round(relativeY / itemHeight);
+  const clampedIndex = Math.max(0, Math.min(targetIndex, allStocks.length - 1));
+  
+  if (clampedIndex !== interaction.targetIndex) {
+    interaction.targetIndex = clampedIndex;
+  }
+  
+  // 更新所有股票项的位置
+  allStocks.forEach((item, index) => {
+    if (item === interaction.node) {
+      // 被拖拽的股票项跟随鼠标
+      item.style.transform = `translateY(${deltaY}px)`;
+      item.style.zIndex = '1000';
+      item.style.opacity = '0.8';
+    } else {
+      // 其他股票项根据目标位置调整
+      let adjustedIndex = index;
+      const initialIndex = interaction.initialIndex;
+      const targetIndex = interaction.targetIndex;
+      
+      if (targetIndex > initialIndex) {
+        // 向下移动：初始位置之后、目标位置之前的股票项向上移动
+        if (index > initialIndex && index <= targetIndex) {
+          adjustedIndex = index - 1;
+        }
+      } else if (targetIndex < initialIndex) {
+        // 向上移动：目标位置之后、初始位置之前的股票项向下移动
+        if (index >= targetIndex && index < initialIndex) {
+          adjustedIndex = index + 1;
+        }
+      }
+      
+      item.style.transform = `translateY(${(adjustedIndex - index) * itemHeight}px)`;
+      item.style.transition = 'transform 0.2s ease';
+    }
+  });
+}
+
+function handleStockPointerUp(event) {
+  if (!activeStockInteraction) return;
+  const interaction = activeStockInteraction;
+  
+  // 移除全局事件监听器
+  document.removeEventListener('pointermove', handleStockPointerMove);
+  document.removeEventListener('pointerup', handleStockPointerUp);
+  
+  if (interaction.node.hasPointerCapture(interaction.pointerId)) {
+    interaction.node.releasePointerCapture(interaction.pointerId);
+  }
+  
+  const stockList = interaction.node.parentElement;
+  const allStocks = Array.from(stockList.querySelectorAll('.stock-item'));
+  
+  // 恢复所有股票项的样式
+  allStocks.forEach(item => {
+    item.style.transform = '';
+    item.style.transition = '';
+    item.style.zIndex = '';
+    item.style.opacity = '';
+    item.style.cursor = 'grab';
+  });
+  
+  interaction.node.classList.remove('dragging');
+  
+  // 如果改变了位置，应用排序
+  if (interaction.isDragging && interaction.targetIndex !== interaction.initialIndex) {
+    reorderStocks(interaction.symbol, interaction.targetIndex);
+  }
+  
+  activeStockInteraction = null;
+}
+
+// 重新排序股票列表
+function reorderStocks(symbol, targetIndex) {
+  const currentIndex = stocks.findIndex(s => s.symbol === symbol);
+  
+  if (currentIndex === -1 || currentIndex === targetIndex) return;
+  
+  // 创建新的数组并重新排序
+  const newStocks = [...stocks];
+  const [movedStock] = newStocks.splice(currentIndex, 1);
+  newStocks.splice(targetIndex, 0, movedStock);
+  
+  stocks = newStocks;
+  saveStocks();
 }
 
 function createProjectTimelineBlock(project, windowStart, windowEnd) {
@@ -654,6 +846,36 @@ function createProjectTimelineBlock(project, windowStart, windowEnd) {
   streams.forEach((stream, index) => {
     const streamNode = createTimelineStream(stream, index, windowStart, windowEnd, project.id);
     timelineStreams.appendChild(streamNode);
+    
+    // 在流程条外侧添加删除按钮
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'stream-delete-btn-inline';
+    deleteBtn.innerHTML = '×';
+    deleteBtn.title = '删除流程条';
+    deleteBtn.dataset.streamId = stream.id;
+    deleteBtn.dataset.projectId = project.id;
+    deleteBtn.dataset.streamIndex = index;
+    deleteBtn.style.top = `${index * 36}px`;
+    deleteBtn.style.right = '-12px'; // 放在流程条右侧外侧
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeStream(project.id, stream.id);
+    });
+    // 阻止删除按钮的拖拽事件
+    deleteBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+    deleteBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    
+    // 监听流程条悬停，显示/隐藏删除按钮
+    streamNode.addEventListener('mouseenter', () => {
+      deleteBtn.style.opacity = '1';
+      deleteBtn.style.pointerEvents = 'auto';
+    });
+    streamNode.addEventListener('mouseleave', () => {
+      deleteBtn.style.opacity = '0';
+      deleteBtn.style.pointerEvents = 'none';
+    });
+    
+    timelineStreams.appendChild(deleteBtn);
   });
 
   timeline.appendChild(timelineGrid);
@@ -769,6 +991,7 @@ function createTimelineStream(stream, index, windowStart, windowEnd, projectId) 
   streamNode.appendChild(startHandle);
   streamNode.appendChild(content);
   streamNode.appendChild(endHandle);
+
 
   // 应用流程条颜色（如果stream.color无效，使用默认值0，而不是index，避免排序后颜色变化）
   const colorIndex = typeof stream.color === 'number' && stream.color >= 0 && stream.color < STREAM_COLOR_PRESETS.length
@@ -965,11 +1188,18 @@ function handleStreamPointerMove(event) {
       interaction.targetIndex = clampedIndex;
     }
     
-    // 更新所有流程条的位置
+    // 更新所有流程条和删除按钮的位置
+    const allDeleteBtns = Array.from(timelineStreams.querySelectorAll('.stream-delete-btn-inline'));
     allStreams.forEach((stream, index) => {
+      const streamId = stream.dataset.streamId;
+      const deleteBtn = allDeleteBtns.find(btn => btn.dataset.streamId === streamId);
+      
       if (stream === interaction.node) {
         // 被拖拽的流程条跟随鼠标
         stream.style.top = `${currentY}px`;
+        if (deleteBtn) {
+          deleteBtn.style.top = `${currentY}px`;
+        }
       } else {
         // 其他流程条根据目标位置调整
         let adjustedIndex = index;
@@ -988,6 +1218,9 @@ function handleStreamPointerMove(event) {
           }
         }
         stream.style.top = `${adjustedIndex * 36}px`;
+        if (deleteBtn) {
+          deleteBtn.style.top = `${adjustedIndex * 36}px`;
+        }
       }
     });
     
@@ -1057,11 +1290,17 @@ function handleStreamPointerUp() {
     if (interaction.targetIndex !== interaction.initialIndex) {
       reorderStreams(interaction.projectId, interaction.streamId, interaction.targetIndex);
     } else {
-      // 如果没有改变位置，恢复所有流程条的位置
+      // 如果没有改变位置，恢复所有流程条和删除按钮的位置
       const timelineStreams = interaction.node.parentElement;
       const allStreams = Array.from(timelineStreams.querySelectorAll('.timeline-stream'));
+      const allDeleteBtns = Array.from(timelineStreams.querySelectorAll('.stream-delete-btn-inline'));
       allStreams.forEach((stream, index) => {
         stream.style.top = `${index * 36}px`;
+        const streamId = stream.dataset.streamId;
+        const deleteBtn = allDeleteBtns.find(btn => btn.dataset.streamId === streamId);
+        if (deleteBtn) {
+          deleteBtn.style.top = `${index * 36}px`;
+        }
       });
     }
     activeStreamInteraction = null;
@@ -2436,6 +2675,19 @@ if (addStreamBtn) {
 
 if (addStockBtn) {
   addStockBtn.addEventListener('click', () => addStock());
+}
+
+// 股票观测dashboard图标按钮点击事件
+if (stockDashboardBtn) {
+  stockDashboardBtn.addEventListener('click', () => {
+    if (isStockDashboardOpen) {
+      // 如果在股票观测dashboard，返回主页面
+      toggleStockDashboard(false);
+    } else {
+      // 如果不在股票观测dashboard，打开股票观测dashboard
+      toggleStockDashboard(true);
+    }
+  });
 }
 
 // Export todos to JSON file

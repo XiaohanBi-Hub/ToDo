@@ -12,6 +12,9 @@
 <body>
   <div class="container">
     <header class="header">
+      <button id="stockDashboardBtn" class="stock-dashboard-icon" type="button" title="股票观测">
+        <img src="icon/miao.png" alt="股票观测">
+      </button>
       <div class="view-toggle" role="tablist" aria-label="View switcher">
         <button class="view-toggle-btn active" data-view="tasks" type="button" aria-label="任务视图"></button>
         <button class="view-toggle-btn" data-view="projects" type="button" aria-label="项目视图"></button>
@@ -56,18 +59,20 @@
         <button id="addStreamBtn" class="project-toolbar-btn primary">+</button>
         <button id="timelineRangeSelect" class="project-range-select">4W</button>
       </div>
+      <div id="projectList" class="project-list"></div>
+      <div id="projectEmptyState" class="project-empty">
+        暂无项目。
+      </div>
+    </div>
+
+    <div id="stockDashboardView" class="stock-dashboard-view" aria-hidden="true">
       <div id="stockWatchList" class="stock-watch-list">
         <div class="stock-watch-header">
-          <span class="stock-watch-title">股票观测</span>
           <button id="addStockBtn" class="add-stock-btn" title="添加股票">+</button>
         </div>
         <div id="stockList" class="stock-list">
           <!-- Stock items will be inserted here -->
         </div>
-      </div>
-      <div id="projectList" class="project-list"></div>
-      <div id="projectEmptyState" class="project-empty">
-        暂无项目。
       </div>
     </div>
     

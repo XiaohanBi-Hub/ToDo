@@ -37,7 +37,7 @@ body {
   background: #ffffff;
   color: #FFC8D3;
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid #e0e0e0;
   position: relative;
@@ -63,6 +63,31 @@ body {
 .header > * {
   position: relative;
   z-index: 1;
+}
+
+.stock-dashboard-icon {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  border-radius: 6px;
+}
+
+.stock-dashboard-icon:hover {
+  transform: scale(1.1);
+  opacity: 0.8;
+}
+
+.stock-dashboard-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .header-title-section {
@@ -1040,6 +1065,31 @@ body {
   display: flex;
 }
 
+.stock-dashboard-view {
+  display: none;
+  flex-direction: column;
+  padding: 8px 16px 16px;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.stock-dashboard-view.visible {
+  display: flex;
+}
+
+.stock-dashboard-view .stock-watch-list {
+  position: relative;
+  margin-top: 0;
+  margin-bottom: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .view-toggle {
   display: inline-flex;
   background: #FA766E;
@@ -1154,9 +1204,18 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
+.stock-dashboard-view .stock-watch-list {
+  margin-top: 0;
+  margin-bottom: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .stock-watch-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   margin-bottom: 10px;
   padding-bottom: 8px;
@@ -1197,17 +1256,35 @@ body {
   gap: 6px;
   max-height: 150px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.stock-dashboard-view .stock-list {
+  max-height: none;
+  flex: 1;
 }
 
 .stock-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 10px;
+  padding: 6px 8px;
   background: #fafafa;
   border-radius: 6px;
   transition: background 0.2s ease;
-  cursor: pointer;
+  cursor: grab;
+  position: relative;
+  user-select: none;
+}
+
+.stock-item:active {
+  cursor: grabbing;
+}
+
+.stock-item.dragging {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  opacity: 0.8;
 }
 
 .stock-item:hover {
@@ -1217,19 +1294,19 @@ body {
 .stock-item-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   flex: 1;
   min-width: 0;
 }
 
 .stock-symbol {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
   color: #333;
 }
 
 .stock-name {
-  font-size: 11px;
+  font-size: 9px;
   color: #999;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1240,17 +1317,17 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 2px;
+  gap: 1px;
 }
 
 .stock-price {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
   color: #333;
 }
 
 .stock-change {
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 500;
 }
 
@@ -1283,7 +1360,7 @@ body {
   height: 20px;
   border: none;
   border-radius: 4px;
-  background: #ff4444;
+  background: rgba(180, 180, 180, 0.8);
   color: white;
   font-size: 12px;
   line-height: 1;
@@ -1296,7 +1373,7 @@ body {
 }
 
 .stock-delete-btn:hover {
-  background: #ff2222;
+  background: rgba(150, 150, 150, 1);
   transform: scale(1.1);
 }
 
@@ -1393,7 +1470,7 @@ body {
 .timeline-stream {
   position: absolute;
   height: 32px;
-  border-radius: 999px;
+  border-radius: 12px;
   background: rgba(74, 144, 226, 0.16);
   display: flex;
   align-items: center;
@@ -1455,11 +1532,46 @@ body {
   background: rgba(31, 76, 122, 0.35);
   flex-shrink: 0;
   cursor: ew-resize;
-  transition: background 0.2s ease;
+  transition: background 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+}
+
+.timeline-stream:hover .stream-handle {
+  opacity: 1;
 }
 
 .stream-handle:hover {
   background: rgba(31, 76, 122, 0.7);
+}
+
+/* 流程条删除按钮（外侧） */
+.stream-delete-btn-inline {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(180, 180, 180, 0.8);
+  color: white;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.stream-delete-btn-inline:hover {
+  background: rgba(150, 150, 150, 1);
+  transform: scale(1.1);
+}
+
+.stream-delete-btn-inline:active {
+  transform: scale(0.95);
 }
 
 /* Deadline flag styles */

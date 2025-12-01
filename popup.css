@@ -37,7 +37,7 @@ body {
   background: #ffffff;
   color: #FFC8D3;
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   border-bottom: 1px solid #e0e0e0;
   position: relative;
@@ -63,31 +63,6 @@ body {
 .header > * {
   position: relative;
   z-index: 1;
-}
-
-.stock-dashboard-icon {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s ease, opacity 0.2s ease;
-  border-radius: 6px;
-}
-
-.stock-dashboard-icon:hover {
-  transform: scale(1.1);
-  opacity: 0.8;
-}
-
-.stock-dashboard-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
 }
 
 .header-title-section {
@@ -1103,34 +1078,74 @@ body {
 }
 
 .view-toggle {
-  display: inline-flex;
-  background: #FA766E;
+  --toggle-columns: 3;
+  --active-index: 0;
+  --thumb-width: calc((100% - 16px) / 3);
+  --thumb-translate: 8px;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 210px;
+  gap: 6px;
+  padding: 6px 8px;
   border-radius: 999px;
-  padding: 2px;
-  gap: 2px;
-  box-shadow: none;
-  transform-origin: top right;
+  background: rgba(250, 118, 110, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(250, 118, 110, 0.12);
+}
+
+.view-toggle-thumb {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 0;
+  width: var(--thumb-width);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 6px 16px rgba(250, 118, 110, 0.25);
+  transform: translateX(var(--thumb-translate));
+  transition: transform 0.25s ease, width 0.25s ease;
+  pointer-events: none;
 }
 
 .view-toggle-btn {
   border: none;
   background: transparent;
-  padding: 0;
-  width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  font-size: 0;
-  line-height: 0;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  position: relative;
-  background: #FA766E;
+  z-index: 1;
+  color: rgba(250, 118, 110, 0.65);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.view-toggle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 2px solid rgba(250, 118, 110, 0.5);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.view-toggle-label {
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  transition: color 0.2s ease;
 }
 
 .view-toggle-btn.active {
-  background: #fffffff1;
-  color: white;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  color: #FA766E;
+}
+
+.view-toggle-btn.active .view-toggle-dot {
+  background: #FA766E;
+  border-color: #FA766E;
 }
 
 .view-toggle-btn:focus-visible {

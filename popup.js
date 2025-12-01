@@ -23,7 +23,6 @@ const STREAM_COLOR_PRESETS = [
   { bg: '236, 72, 153', text: '157, 23, 77', handle: '157, 23, 77' }, // 粉色
 ];
 const DEFAULT_STREAM_COLOR = STREAM_COLOR_PRESETS[0];
-const VIEW_SEQUENCE = ['tasks', 'projects', 'stocks'];
 
 function createUniqueId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -62,10 +61,9 @@ const projectEmptyState = document.getElementById('projectEmptyState');
 const timelineRangeSelect = document.getElementById('timelineRangeSelect');
 const addStreamBtn = document.getElementById('addStreamBtn');
 const viewToggleButtons = document.querySelectorAll('.view-toggle-btn');
-const viewToggle = document.querySelector('.view-toggle');
-const viewToggleThumb = document.querySelector('.view-toggle-thumb');
 const stockList = document.getElementById('stockList');
 const addStockBtn = document.getElementById('addStockBtn');
+const stockDashboardBtn = document.getElementById('stockDashboardBtn');
 
 const NEW_DAY_LONG_PRESS_DURATION = 1000;
 let newDayPressTimer = null;
@@ -124,11 +122,16 @@ function loadTodos() {
     }
 
     activeView = data.activeView || 'tasks';
+    applyViewMode(activeView);
     renderProjects();
     
     // Load stocks
     stocks = data.stocks || [];
-    setActiveView(activeView, { skipStorage: true });
+    if (activeView === 'projects') {
+      renderStocks(true); // 加载时如果已在项目视图，则更新股票数据
+    } else {
+      renderStocks(false); // 否则只渲染，不更新
+    }
   };
 
   if (!shouldSyncLightweightTodos) {
@@ -255,53 +258,22 @@ function saveHeaderBackgroundImage(imageData) {
   });
 }
 
-function setActiveView(view = 'tasks', options = {}) {
-  const { skipStorage = false } = options;
-  const normalizedView = VIEW_SEQUENCE.includes(view) ? view : 'tasks';
-  activeView = normalizedView;
+function applyViewMode(view = 'tasks') {
+  activeView = view;
   
-  const isTasks = normalizedView === 'tasks';
-  const isProjects = normalizedView === 'projects';
-  const isStocks = normalizedView === 'stocks';
+  // 如果股票观测dashboard打开，先关闭它
+  if (isStockDashboardOpen) {
+    toggleStockDashboard(false);
+  }
   
   if (taskView) {
-    taskView.classList.toggle('hidden', !isTasks);
+    taskView.classList.toggle('hidden', view !== 'tasks');
   }
   if (projectView) {
-    projectView.classList.toggle('visible', isProjects);
-    projectView.setAttribute('aria-hidden', isProjects ? 'false' : 'true');
+    projectView.classList.toggle('visible', view === 'projects');
+    projectView.setAttribute('aria-hidden', view === 'projects' ? 'false' : 'true');
   }
-  if (stockDashboardView) {
-    stockDashboardView.classList.toggle('visible', isStocks);
-    stockDashboardView.setAttribute('aria-hidden', isStocks ? 'false' : 'true');
-  }
-  
-  document.body.classList.toggle('view-projects', isProjects);
-  isStockDashboardOpen = isStocks;
-  
-  if (isProjects) {
-    renderProjects();
-  } else if (isTasks) {
-    updateCurrentDateDisplay();
-  } else if (isStocks) {
-    renderStocks(true);
-  }
-  
-  updateViewToggleState(normalizedView);
-  
-  if (!skipStorage) {
-    chrome.storage.sync.set({ activeView: normalizedView });
-  }
-}
-
-function updateViewToggleState(view) {
-  const index = VIEW_SEQUENCE.indexOf(view);
-  if (viewToggle) {
-    const safeIndex = index >= 0 ? index : 0;
-    viewToggle.style.setProperty('--active-index', safeIndex.toString());
-    updateViewToggleThumbPosition(safeIndex);
-  }
-  
+  document.body.classList.toggle('view-projects', view === 'projects');
   if (viewToggleButtons && viewToggleButtons.length > 0) {
     viewToggleButtons.forEach(btn => {
       const isActive = btn.dataset.view === view;
@@ -309,26 +281,42 @@ function updateViewToggleState(view) {
       btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
   }
+  if (view === 'projects') {
+    renderProjects();
+  } else if (view === 'tasks') {
+    updateCurrentDateDisplay();
+  }
 }
 
-function updateViewToggleThumbPosition(index) {
-  if (!viewToggle || !viewToggleThumb || !viewToggleButtons || viewToggleButtons.length === 0) {
-    return;
+// 切换股票观测dashboard
+function toggleStockDashboard(open) {
+  isStockDashboardOpen = open;
+  
+  if (stockDashboardView) {
+    stockDashboardView.classList.toggle('visible', open);
+    stockDashboardView.setAttribute('aria-hidden', open ? 'false' : 'true');
   }
-  const safeIndex = Math.max(0, Math.min(index, viewToggleButtons.length - 1));
-  const targetButton = viewToggleButtons[safeIndex];
-  if (!targetButton) return;
-
-  // 使用动画帧确保布局信息最新
-  requestAnimationFrame(() => {
-    const toggleRect = viewToggle.getBoundingClientRect();
-    const buttonRect = targetButton.getBoundingClientRect();
-    if (toggleRect.width === 0 || buttonRect.width === 0) {
-      return;
+  
+  // 隐藏其他视图
+  if (open) {
+    if (taskView) {
+      taskView.classList.add('hidden');
     }
-    const translate = buttonRect.left - toggleRect.left;
-    viewToggleThumb.style.setProperty('--thumb-width', `${buttonRect.width}px`);
-    viewToggleThumb.style.setProperty('--thumb-translate', `${translate}px`);
+    if (projectView) {
+      projectView.classList.remove('visible');
+      projectView.setAttribute('aria-hidden', 'true');
+    }
+    // 渲染股票数据
+    renderStocks(true);
+  } else {
+    // 恢复之前的视图
+    applyViewMode(activeView);
+  }
+}
+
+function saveViewMode(view) {
+  chrome.storage.sync.set({ activeView: view }, () => {
+    applyViewMode(view);
   });
 }
 
@@ -2770,7 +2758,7 @@ if (viewToggleButtons && viewToggleButtons.length > 0) {
   viewToggleButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const view = btn.dataset.view || 'tasks';
-      setActiveView(view);
+      saveViewMode(view);
     });
   });
 }
@@ -2804,6 +2792,19 @@ if (addStreamBtn) {
 
 if (addStockBtn) {
   addStockBtn.addEventListener('click', () => addStock());
+}
+
+// 股票观测dashboard图标按钮点击事件
+if (stockDashboardBtn) {
+  stockDashboardBtn.addEventListener('click', () => {
+    if (isStockDashboardOpen) {
+      // 如果在股票观测dashboard，返回主页面
+      toggleStockDashboard(false);
+    } else {
+      // 如果不在股票观测dashboard，打开股票观测dashboard
+      toggleStockDashboard(true);
+    }
+  });
 }
 
 // Export todos to JSON file
@@ -3024,8 +3025,6 @@ function handleWindowResize() {
   // 使用防抖，避免频繁触发
   clearTimeout(resizeTimeout);
   resizeTimeout = setTimeout(() => {
-    const activeIndex = VIEW_SEQUENCE.indexOf(activeView);
-    updateViewToggleThumbPosition(activeIndex >= 0 ? activeIndex : 0);
     // 如果当前在项目视图，重新渲染以确保时间线正确适应新尺寸
     if (activeView === 'projects' && projectList) {
       // 时间线使用百分比定位，CSS 会自动适应，但我们可以触发一次重新计算

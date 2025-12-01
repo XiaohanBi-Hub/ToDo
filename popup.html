@@ -12,20 +12,12 @@
 <body>
   <div class="container">
     <header class="header">
-      <div class="view-toggle" role="tablist" aria-label="视图切换">
-        <div class="view-toggle-thumb" aria-hidden="true"></div>
-        <button class="view-toggle-btn active" data-view="tasks" type="button" aria-label="任务视图" aria-pressed="true">
-          <span class="view-toggle-dot" aria-hidden="true"></span>
-          <span class="view-toggle-label">Tasks</span>
-        </button>
-        <button class="view-toggle-btn" data-view="projects" type="button" aria-label="甘特视图" aria-pressed="false">
-          <span class="view-toggle-dot" aria-hidden="true"></span>
-          <span class="view-toggle-label">Gantt</span>
-        </button>
-        <button class="view-toggle-btn" data-view="stocks" type="button" aria-label="股票视图" aria-pressed="false">
-          <span class="view-toggle-dot" aria-hidden="true"></span>
-          <span class="view-toggle-label">Stocks</span>
-        </button>
+      <button id="stockDashboardBtn" class="stock-dashboard-icon" type="button" title="股票观测">
+        <img src="icon/miao.png" alt="股票观测">
+      </button>
+      <div class="view-toggle" role="tablist" aria-label="View switcher">
+        <button class="view-toggle-btn active" data-view="tasks" type="button" aria-label="任务视图"></button>
+        <button class="view-toggle-btn" data-view="projects" type="button" aria-label="项目视图"></button>
       </div>
     </header>
     

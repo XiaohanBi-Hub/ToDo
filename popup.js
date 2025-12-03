@@ -9,6 +9,7 @@ let isStockDashboardOpen = false; // 是否在股票观测dashboard
 let timelineRangeWeeks = 4;
 let activeStreamInteraction = null;
 let activeStockInteraction = null; // 股票拖拽交互状态
+let selectedStreamNode = null; // 当前选中的流程条，用于键盘删除
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const STREAM_MIN_DURATION_MS = MS_PER_DAY;
@@ -265,6 +266,9 @@ function applyViewMode(view = 'tasks') {
   if (isStockDashboardOpen) {
     toggleStockDashboard(false);
   }
+  
+  // 切换视图时清除选中的流程条
+  clearSelectedStream();
   
   if (taskView) {
     taskView.classList.toggle('hidden', view !== 'tasks');
@@ -631,10 +635,11 @@ async function fetchStockData(symbol) {
       console.log('YTD calculation failed:', e);
     }
     
-    // 获取本周开始数据（WTD）- 获取1个月的数据，找到本周一价格
+    // 获取本周开始数据（WTD）- 获取5天的数据，找到本周第一个交易日的开盘价
     let wtdPercent = 0;
     try {
-      const wtdResponse = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbolUpper}?interval=1d&range=1mo`);
+      // 获取5天的数据（足够覆盖一周）
+      const wtdResponse = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbolUpper}?interval=1d&range=5d`);
       if (wtdResponse.ok) {
         const wtdData = await wtdResponse.json();
         if (wtdData.chart && wtdData.chart.result && wtdData.chart.result.length > 0) {
@@ -642,28 +647,53 @@ async function fetchStockData(symbol) {
           const timestamps = wtdResult.timestamp || [];
           const quotes = wtdResult.indicators?.quote?.[0];
           
-          if (timestamps.length > 0 && quotes && quotes.close) {
-            // 找到本周一的价格
+          if (timestamps.length > 0 && quotes && quotes.open && quotes.close) {
+            // 计算本周一的日期
             const now = new Date();
             const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
             const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-            const monday = new Date(now);
-            monday.setDate(now.getDate() - daysToMonday);
-            monday.setHours(0, 0, 0, 0);
-            const mondayTimestamp = monday.getTime() / 1000;
+            const mondayDate = new Date(now);
+            mondayDate.setDate(now.getDate() - daysToMonday);
+            mondayDate.setHours(0, 0, 0, 0);
             
-            // 找到最接近周一的时间戳
+            // 将周一转换为日期字符串（只比较日期，不考虑时间）
+            const mondayDateStr = mondayDate.toISOString().split('T')[0];
+            
             let wtdStartPrice = null;
+            let mondayFound = false;
+            
+            // 遍历所有数据点，找到周一或周一之后第一个交易日
             for (let i = 0; i < timestamps.length; i++) {
-              if (timestamps[i] >= mondayTimestamp) {
-                wtdStartPrice = quotes.close[i] || quotes.close[i - 1];
-                break;
+              const ts = timestamps[i];
+              const dataDate = new Date(ts * 1000);
+              const dataDateStr = dataDate.toISOString().split('T')[0];
+              
+              // 检查是否是周一或之后的日期
+              if (dataDateStr >= mondayDateStr) {
+                // 找到周一或之后的第一个交易日，使用开盘价
+                if (quotes.open[i] && quotes.open[i] > 0) {
+                  wtdStartPrice = quotes.open[i];
+                  mondayFound = true;
+                  break;
+                }
               }
             }
             
-            // 如果没找到，使用第一个数据点
-            if (wtdStartPrice === null && quotes.close.length > 0) {
-              wtdStartPrice = quotes.close[0];
+            // 如果没找到周一的数据，使用周一之前最近的一个交易日的收盘价
+            if (!mondayFound || wtdStartPrice === null || wtdStartPrice === 0) {
+              for (let i = timestamps.length - 1; i >= 0; i--) {
+                const ts = timestamps[i];
+                const dataDate = new Date(ts * 1000);
+                const dataDateStr = dataDate.toISOString().split('T')[0];
+                
+                // 找到周一之前最近的一个交易日
+                if (dataDateStr < mondayDateStr) {
+                  if (quotes.close[i] && quotes.close[i] > 0) {
+                    wtdStartPrice = quotes.close[i];
+                    break;
+                  }
+                }
+              }
             }
             
             if (wtdStartPrice && wtdStartPrice > 0) {
@@ -967,8 +997,12 @@ function createProjectTimelineBlock(project, windowStart, windowEnd) {
     deleteBtn.dataset.streamId = stream.id;
     deleteBtn.dataset.projectId = project.id;
     deleteBtn.dataset.streamIndex = index;
-    deleteBtn.style.top = `${index * 36}px`;
+    // 流程条高度32px，删除按钮使用transform: translateY(-50%)垂直居中
+    // 流程条的中间位置：top = index * 36 + 16 (流程条高度32px的一半)
+    deleteBtn.style.top = `${index * 36 + 16}px`;
     deleteBtn.style.right = '-12px'; // 放在流程条右侧外侧
+    deleteBtn.style.opacity = '0'; // 默认隐藏
+    deleteBtn.style.pointerEvents = 'none'; // 默认不可点击
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       removeStream(project.id, stream.id);
@@ -977,14 +1011,42 @@ function createProjectTimelineBlock(project, windowStart, windowEnd) {
     deleteBtn.addEventListener('mousedown', (e) => e.stopPropagation());
     deleteBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
     
-    // 监听流程条悬停，显示/隐藏删除按钮
-    streamNode.addEventListener('mouseenter', () => {
+    // 监听流程条的focus/blur事件，控制删除按钮的显示/隐藏
+    let blurTimeout = null;
+    streamNode.addEventListener('focus', () => {
+      if (blurTimeout) {
+        clearTimeout(blurTimeout);
+        blurTimeout = null;
+      }
       deleteBtn.style.opacity = '1';
       deleteBtn.style.pointerEvents = 'auto';
     });
-    streamNode.addEventListener('mouseleave', () => {
-      deleteBtn.style.opacity = '0';
-      deleteBtn.style.pointerEvents = 'none';
+    streamNode.addEventListener('blur', () => {
+      // 延迟隐藏，给用户时间从流程条移到删除按钮
+      blurTimeout = setTimeout(() => {
+        // 检查鼠标是否在删除按钮上
+        if (!deleteBtn.matches(':hover')) {
+          deleteBtn.style.opacity = '0';
+          deleteBtn.style.pointerEvents = 'none';
+        }
+      }, 150);
+    });
+    
+    // 当鼠标移到删除按钮上时，保持显示
+    deleteBtn.addEventListener('mouseenter', () => {
+      if (blurTimeout) {
+        clearTimeout(blurTimeout);
+        blurTimeout = null;
+      }
+      deleteBtn.style.opacity = '1';
+      deleteBtn.style.pointerEvents = 'auto';
+    });
+    deleteBtn.addEventListener('mouseleave', () => {
+      // 如果流程条没有focus，则隐藏
+      if (document.activeElement !== streamNode) {
+        deleteBtn.style.opacity = '0';
+        deleteBtn.style.pointerEvents = 'none';
+      }
     });
     
     timelineStreams.appendChild(deleteBtn);
@@ -1058,6 +1120,7 @@ function createTimelineStream(stream, index, windowStart, windowEnd, projectId) 
   streamNode.className = 'timeline-stream';
   streamNode.dataset.streamId = stream.id;
   streamNode.dataset.projectId = projectId;
+  streamNode.tabIndex = 0; // 使流程条可聚焦，支持键盘操作
 
   const startDate = stream.startDate ? new Date(stream.startDate) : new Date(windowStart);
   const endDate = stream.endDate ? new Date(stream.endDate) : new Date(startDate);
@@ -1087,6 +1150,8 @@ function createTimelineStream(stream, index, windowStart, windowEnd, projectId) 
       event.preventDefault();
       labelEl.blur();
     }
+    // Delete和Backspace键在编辑标签时用于删除文本，不处理流程条删除
+    // 当labelEl聚焦时，streamNode的keydown事件不会触发，所以这里不需要特殊处理
   });
   labelEl.addEventListener('blur', () => {
     const nextLabel = (labelEl.textContent || '').trim() || '未命名流程';
@@ -1104,6 +1169,21 @@ function createTimelineStream(stream, index, windowStart, windowEnd, projectId) 
   streamNode.appendChild(content);
   streamNode.appendChild(endHandle);
 
+  // 点击流程条时设置选中状态
+  streamNode.addEventListener('click', (event) => {
+    // 如果点击的是标签、手柄或删除按钮，不处理
+    if (event.target.closest('.timeline-stream-label') ||
+        event.target.closest('.stream-handle') ||
+        event.target.closest('.stream-delete-btn-inline')) {
+      return;
+    }
+    
+    // 阻止事件冒泡，避免触发document的click事件清除选中状态
+    event.stopPropagation();
+    
+    // 设置选中状态
+    setSelectedStream(streamNode);
+  });
 
   // 应用流程条颜色（如果stream.color无效，使用默认值0，而不是index，避免排序后颜色变化）
   const colorIndex = typeof stream.color === 'number' && stream.color >= 0 && stream.color < STREAM_COLOR_PRESETS.length
@@ -1240,6 +1320,11 @@ function handleStreamPointerDown(event, windowStart, windowEnd) {
   const allStreams = Array.from(timelineStreams.querySelectorAll('.timeline-stream'));
   const currentIndex = allStreams.indexOf(streamNode);
   const initialTop = parseFloat(streamNode.style.top) || (currentIndex * 36);
+
+  // 如果点击的不是手柄，设置选中状态，显示删除按钮并支持键盘操作
+  if (!startHandle && !endHandle) {
+    setSelectedStream(streamNode);
+  }
 
   activeStreamInteraction = {
     node: streamNode,
@@ -1658,16 +1743,6 @@ function showStreamColorMenu(event, streamNode, streamId, projectId) {
   
   menu.appendChild(colorGrid);
   
-  // 添加删除按钮
-  const deleteBtn = document.createElement('button');
-  deleteBtn.className = 'stream-delete-btn';
-  deleteBtn.textContent = '删除流程条';
-  deleteBtn.addEventListener('click', () => {
-    menu.remove();
-    removeStream(projectId, streamId);
-  });
-  menu.appendChild(deleteBtn);
-  
   document.body.appendChild(menu);
   
   // 计算菜单位置，确保不超出窗口边界
@@ -1920,8 +1995,41 @@ function removeDeadline(projectId, streamId, deadlineId) {
   saveProjects(updatedProjects);
 }
 
+// 设置选中的流程条
+function setSelectedStream(streamNode) {
+  // 清除之前的选中状态
+  if (selectedStreamNode && selectedStreamNode !== streamNode) {
+    selectedStreamNode.classList.remove('selected');
+  }
+  
+  // 设置新的选中状态
+  selectedStreamNode = streamNode;
+  streamNode.classList.add('selected');
+  // 尝试获得焦点，但不强制（即使失去焦点，selectedStreamNode仍然保存选中状态）
+  try {
+    streamNode.focus();
+  } catch (e) {
+    // 如果focus失败，不影响选中状态
+  }
+}
+
+// 清除选中的流程条
+function clearSelectedStream() {
+  if (selectedStreamNode) {
+    selectedStreamNode.classList.remove('selected');
+    selectedStreamNode = null;
+  }
+}
+
 // 删除流程条
 function removeStream(projectId, streamId) {
+  // 如果删除的是当前选中的流程条，清除选中状态
+  if (selectedStreamNode && 
+      selectedStreamNode.dataset.projectId === projectId && 
+      selectedStreamNode.dataset.streamId === streamId) {
+    clearSelectedStream();
+  }
+  
   const updatedProjects = projects.map(project => {
     if (project.id !== projectId) return project;
     return {
@@ -3049,6 +3157,58 @@ function handleWindowResize() {
 
 // 监听窗口大小改变
 window.addEventListener('resize', handleWindowResize);
+
+// 处理键盘删除事件的函数
+function handleStreamDeleteKey(event) {
+  // 如果有选中的流程条，处理Delete和Backspace键
+  if (!selectedStreamNode || (event.key !== 'Delete' && event.key !== 'Backspace')) {
+    return false;
+  }
+  
+  const activeElement = document.activeElement;
+  
+  // 如果正在编辑输入框或可编辑元素，检查是否是流程条标签
+  if (activeElement && activeElement !== document.body && activeElement !== document.documentElement) {
+    const tagName = activeElement.tagName;
+    const isContentEditable = activeElement.isContentEditable;
+    
+    // 如果正在编辑流程条标签，允许删除文本（不删除流程条）
+    if (activeElement.classList.contains('timeline-stream-label')) {
+      return false;
+    }
+    
+    // 如果正在编辑其他输入框或可编辑元素，不处理（避免误删）
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || isContentEditable) {
+      return false;
+    }
+  }
+  
+  // 获取选中流程条的信息
+  const projectId = selectedStreamNode.dataset.projectId;
+  const streamId = selectedStreamNode.dataset.streamId;
+  
+  if (projectId && streamId) {
+    event.preventDefault();
+    event.stopPropagation();
+    removeStream(projectId, streamId);
+    return true; // 表示事件已处理
+  }
+  
+  return false; // 表示事件未处理
+}
+
+// 全局键盘事件监听器，支持Delete键删除选中的流程条
+// 在document和window上都添加监听器，确保能捕获所有键盘事件
+document.addEventListener('keydown', handleStreamDeleteKey, true); // 使用捕获阶段
+window.addEventListener('keydown', handleStreamDeleteKey, true); // 在window上也添加，作为备用
+
+// 点击其他地方时清除选中状态
+document.addEventListener('click', (event) => {
+  // 如果点击的不是流程条或流程条的子元素，清除选中状态
+  if (selectedStreamNode && !event.target.closest('.timeline-stream')) {
+    clearSelectedStream();
+  }
+}, true);
 
 // 全局测试：检查右键事件是否被捕获
 document.addEventListener('contextmenu', (e) => {

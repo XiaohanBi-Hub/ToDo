@@ -1104,7 +1104,7 @@ body {
 
 .view-toggle {
   display: inline-flex;
-  background: #FA766E;
+  background: rgba(180, 180, 180, 0.8);
   border-radius: 999px;
   padding: 2px;
   gap: 2px;
@@ -1124,7 +1124,7 @@ body {
   cursor: pointer;
   transition: all 0.3s ease;
   position: relative;
-  background: #FA766E;
+  background: rgba(180, 180, 180, 0.8);
 }
 
 .view-toggle-btn.active {
@@ -1162,6 +1162,7 @@ body {
   transition: all 0.2s ease;
   background: #efeded;
   font-weight: normal;
+  font-style: italic;
   color: #302f2f;
   height: var(--project-action-height);
   display: flex;
@@ -1169,6 +1170,8 @@ body {
   align-items: center;
   font-size: 18px;
   line-height: 1;
+  position: relative;
+  left: -8px;
 }
 
 .project-range-select {
@@ -1187,7 +1190,10 @@ body {
   cursor: pointer;
   box-sizing: border-box;
   font-weight: normal;
+  font-style: italic;
   transition: all 0.2s ease;
+  position: relative;
+  left: -8px;
 }
 
 .project-range-select:hover {
@@ -1507,6 +1513,23 @@ body {
   cursor: grab;
   user-select: none;
   transition: box-shadow 0.2s ease, background 0.2s ease;
+  outline: none;
+}
+
+.timeline-stream:focus {
+  box-shadow: 0 0 0 2px rgba(31, 76, 122, 0.5), 0 4px 12px rgba(31, 76, 122, 0.2);
+}
+
+.timeline-stream:focus:not(.dragging):not(.sorting) {
+  box-shadow: 0 0 0 2px rgba(31, 76, 122, 0.5), 0 4px 12px rgba(31, 76, 122, 0.2);
+}
+
+.timeline-stream.selected {
+  box-shadow: 0 0 0 2px rgba(31, 76, 122, 0.6), 0 4px 12px rgba(31, 76, 122, 0.25);
+}
+
+.timeline-stream.selected:not(.dragging):not(.sorting) {
+  box-shadow: 0 0 0 2px rgba(31, 76, 122, 0.6), 0 4px 12px rgba(31, 76, 122, 0.25);
 }
 
 .timeline-stream.dragging {
@@ -1587,11 +1610,13 @@ body {
   transition: opacity 0.2s ease, background 0.2s ease, transform 0.2s ease;
   pointer-events: none;
   z-index: 100;
+  transform: translateY(-50%); /* 垂直居中 */
 }
 
 .stream-delete-btn-inline:hover {
   background: rgba(150, 150, 150, 1);
-  transform: scale(1.1);
+  transform: translateY(-50%) scale(1.1); /* 保持垂直居中同时放大 */
+  opacity: 1;
 }
 
 .stream-delete-btn-inline:active {

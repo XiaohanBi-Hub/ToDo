@@ -3,12 +3,9 @@ let todos = [];
 let archivedTodos = [];
 let nextDayTodos = [];
 let projects = [];
-let stocks = []; // 股票观测列表
 let activeView = 'tasks';
-let isStockDashboardOpen = false; // 是否在股票观测dashboard
 let timelineRangeWeeks = 4;
 let activeStreamInteraction = null;
-let activeStockInteraction = null; // 股票拖拽交互状态
 let selectedStreamNode = null; // 当前选中的流程条，用于键盘删除
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -55,16 +52,12 @@ const headerBgPreview = document.getElementById('headerBgPreview');
 const headerBgPreviewImg = document.getElementById('headerBgPreviewImg');
 const taskView = document.getElementById('taskView');
 const projectView = document.getElementById('projectView');
-const stockDashboardView = document.getElementById('stockDashboardView');
 const currentDateDisplay = document.getElementById('currentDateDisplay');
 const projectList = document.getElementById('projectList');
 const projectEmptyState = document.getElementById('projectEmptyState');
 const timelineRangeSelect = document.getElementById('timelineRangeSelect');
 const addStreamBtn = document.getElementById('addStreamBtn');
 const viewToggleButtons = document.querySelectorAll('.view-toggle-btn');
-const stockList = document.getElementById('stockList');
-const addStockBtn = document.getElementById('addStockBtn');
-const stockDashboardBtn = document.getElementById('stockDashboardBtn');
 
 const NEW_DAY_LONG_PRESS_DURATION = 1000;
 let newDayPressTimer = null;
@@ -72,10 +65,21 @@ let newDayToastTimer = null;
 const TODO_DATA_KEYS = ['todos', 'archivedTodos', 'nextDayTodos'];
 const TODO_STATE_META_KEY = 'todosUpdatedAt';
 const TODO_STORAGE_KEYS = [...TODO_DATA_KEYS, TODO_STATE_META_KEY];
-const SETTINGS_STORAGE_KEYS = ['backgroundColor', 'projects', 'activeView', 'headerBackgroundImage', 'stocks'];
+const SETTINGS_STORAGE_KEYS = ['backgroundColor', 'projects', 'activeView', 'headerBackgroundImage'];
 const todoStorageArea = chrome.storage && chrome.storage.local ? chrome.storage.local : chrome.storage.sync;
 const syncStorageArea = chrome.storage && chrome.storage.sync ? chrome.storage.sync : chrome.storage.local;
 const shouldSyncLightweightTodos = Boolean(syncStorageArea && syncStorageArea !== todoStorageArea);
+// Notes (daily notebook) elements and state
+const notesView = document.getElementById('notesView');
+const notesDateDisplay = document.getElementById('notesDateDisplay');
+const notesPrevBtn = document.getElementById('notesPrevBtn');
+const notesNextBtn = document.getElementById('notesNextBtn');
+const noteInput = document.getElementById('noteInput');
+const noteAddBtn = document.getElementById('noteAddBtn');
+const notesList = document.getElementById('notesList');
+const notesEmptyState = document.getElementById('notesEmptyState');
+let dailyNotes = {}; // { 'YYYY-MM-DD': [ {id, text, createdAt} ] }
+let currentNotesDate = new Date();
 
 // Load todos from storage
 function loadTodos() {
@@ -126,13 +130,7 @@ function loadTodos() {
     applyViewMode(activeView);
     renderProjects();
     
-    // Load stocks
-    stocks = data.stocks || [];
-    if (activeView === 'projects') {
-      renderStocks(true); // 加载时如果已在项目视图，则更新股票数据
-    } else {
-      renderStocks(false); // 否则只渲染，不更新
-    }
+    // 股票观测功能已移除
   };
 
   if (!shouldSyncLightweightTodos) {
@@ -261,12 +259,6 @@ function saveHeaderBackgroundImage(imageData) {
 
 function applyViewMode(view = 'tasks') {
   activeView = view;
-  
-  // 如果股票观测dashboard打开，先关闭它
-  if (isStockDashboardOpen) {
-    toggleStockDashboard(false);
-  }
-  
   // 切换视图时清除选中的流程条
   clearSelectedStream();
   
@@ -290,33 +282,16 @@ function applyViewMode(view = 'tasks') {
   } else if (view === 'tasks') {
     updateCurrentDateDisplay();
   }
+  // notes view
+  if (notesView) {
+    notesView.classList.toggle('visible', view === 'notes');
+    notesView.setAttribute('aria-hidden', view === 'notes' ? 'false' : 'true');
+  }
+  document.body.classList.toggle('view-notes', view === 'notes');
 }
 
 // 切换股票观测dashboard
-function toggleStockDashboard(open) {
-  isStockDashboardOpen = open;
-  
-  if (stockDashboardView) {
-    stockDashboardView.classList.toggle('visible', open);
-    stockDashboardView.setAttribute('aria-hidden', open ? 'false' : 'true');
-  }
-  
-  // 隐藏其他视图
-  if (open) {
-    if (taskView) {
-      taskView.classList.add('hidden');
-    }
-    if (projectView) {
-      projectView.classList.remove('visible');
-      projectView.setAttribute('aria-hidden', 'true');
-    }
-    // 渲染股票数据
-    renderStocks(true);
-  } else {
-    // 恢复之前的视图
-    applyViewMode(activeView);
-  }
-}
+// 股票观测功能已移除
 
 function saveViewMode(view) {
   chrome.storage.sync.set({ activeView: view }, () => {
@@ -391,6 +366,97 @@ function normalizeProjects(data) {
       streams
     };
   });
+}
+
+// Notes (daily notebook) functions
+function formatDateKey(date) {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toISOString().split('T')[0];
+}
+
+function formatDateDisplay(date) {
+  const d = new Date(date);
+  const options = { weekday: 'short', month: 'short', day: 'numeric' };
+  return d.toLocaleDateString(undefined, options);
+}
+
+function loadNotesFromStorage() {
+  chrome.storage.sync.get(['dailyNotes'], (data = {}) => {
+    dailyNotes = data.dailyNotes || {};
+    renderNotesForDate(currentNotesDate);
+  });
+}
+
+function saveNotesToStorage() {
+  chrome.storage.sync.set({ dailyNotes });
+}
+
+function getNotesForDate(date) {
+  const key = formatDateKey(date);
+  return Array.isArray(dailyNotes[key]) ? dailyNotes[key] : [];
+}
+
+function renderNotesForDate(date) {
+  if (!notesList || !notesDateDisplay) return;
+  const key = formatDateKey(date);
+  notesDateDisplay.textContent = formatDateDisplay(date);
+  const notes = getNotesForDate(date);
+  notesList.innerHTML = '';
+  if (!notes || notes.length === 0) {
+    notesEmptyState.classList.add('show');
+    return;
+  } else {
+    notesEmptyState.classList.remove('show');
+  }
+  notes.forEach(note => {
+    const li = document.createElement('li');
+    li.className = 'note-item';
+    li.dataset.id = note.id;
+
+    const span = document.createElement('div');
+    span.className = 'note-text';
+    span.textContent = note.text;
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'note-delete-btn';
+    delBtn.textContent = 'Delete';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteNoteById(key, note.id);
+    });
+
+    li.appendChild(span);
+    li.appendChild(delBtn);
+    notesList.appendChild(li);
+  });
+}
+
+function addNoteForCurrentDate(text) {
+  if (!text || !text.trim()) return;
+  const key = formatDateKey(currentNotesDate);
+  const note = {
+    id: Date.now() + Math.random(),
+    text: text.trim(),
+    createdAt: new Date().toISOString()
+  };
+  if (!dailyNotes[key]) dailyNotes[key] = [];
+  dailyNotes[key].push(note);
+  saveNotesToStorage();
+  renderNotesForDate(currentNotesDate);
+}
+
+function deleteNoteById(dateKey, id) {
+  if (!dailyNotes[dateKey]) return;
+  dailyNotes[dateKey] = dailyNotes[dateKey].filter(n => n.id !== id);
+  saveNotesToStorage();
+  renderNotesForDate(currentNotesDate);
+}
+
+function changeNotesDate(offsetDays) {
+  const d = new Date(currentNotesDate);
+  d.setDate(d.getDate() + offsetDays);
+  currentNotesDate = d;
+  renderNotesForDate(currentNotesDate);
 }
 
 function getSampleProjects() {
@@ -1026,8 +1092,8 @@ function createProjectTimelineBlock(project, windowStart, windowEnd) {
       blurTimeout = setTimeout(() => {
         // 检查鼠标是否在删除按钮上
         if (!deleteBtn.matches(':hover')) {
-          deleteBtn.style.opacity = '0';
-          deleteBtn.style.pointerEvents = 'none';
+      deleteBtn.style.opacity = '0';
+      deleteBtn.style.pointerEvents = 'none';
         }
       }, 150);
     });
@@ -2898,21 +2964,30 @@ if (addStreamBtn) {
   addStreamBtn.addEventListener('click', () => handleAddStream());
 }
 
-if (addStockBtn) {
-  addStockBtn.addEventListener('click', () => addStock());
-}
+// 股票观测功能入口已移除（相关事件监听器删除）
 
-// 股票观测dashboard图标按钮点击事件
-if (stockDashboardBtn) {
-  stockDashboardBtn.addEventListener('click', () => {
-    if (isStockDashboardOpen) {
-      // 如果在股票观测dashboard，返回主页面
-      toggleStockDashboard(false);
-    } else {
-      // 如果不在股票观测dashboard，打开股票观测dashboard
-      toggleStockDashboard(true);
+// Notes event listeners
+if (noteAddBtn && noteInput) {
+  noteAddBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    addNoteForCurrentDate(noteInput.value);
+    noteInput.value = '';
+    noteInput.focus();
+  });
+  noteInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addNoteForCurrentDate(noteInput.value);
+      noteInput.value = '';
     }
   });
+}
+
+if (notesPrevBtn) {
+  notesPrevBtn.addEventListener('click', () => changeNotesDate(-1));
+}
+if (notesNextBtn) {
+  notesNextBtn.addEventListener('click', () => changeNotesDate(1));
 }
 
 // Export todos to JSON file

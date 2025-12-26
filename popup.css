@@ -1208,6 +1208,94 @@ body {
   border-color: #ddd;
 }
 
+/* Notes (daily notebook) styles */
+.notes-view {
+  display: none;
+  flex-direction: column;
+  padding: 8px 16px 16px;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.notes-view.visible {
+  display: flex;
+}
+
+.notes-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.notes-input-section {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.note-input {
+  flex: 1;
+  height: 34px;
+  padding: 6px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  outline: none;
+}
+
+.note-add-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #4a90e2;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.notes-list {
+  list-style: none;
+  padding: 6px 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.note-item {
+  padding: 8px 12px;
+  background: #fafafa;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.note-text {
+  flex: 1;
+  color: #444;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.note-delete-btn {
+  border: none;
+  background: #efefef;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+
 .project-toolbar-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);

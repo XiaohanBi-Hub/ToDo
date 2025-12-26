@@ -12,12 +12,10 @@
 <body>
   <div class="container">
     <header class="header">
-      <button id="stockDashboardBtn" class="stock-dashboard-icon" type="button" title="股票观测">
-        <img src="icon/miao.png" alt="股票观测">
-      </button>
       <div class="view-toggle" role="tablist" aria-label="View switcher">
         <button class="view-toggle-btn active" data-view="tasks" type="button" aria-label="任务视图"></button>
         <button class="view-toggle-btn" data-view="projects" type="button" aria-label="项目视图"></button>
+        <button class="view-toggle-btn" data-view="notes" type="button" aria-label="记事视图">N</button>
       </div>
     </header>
     
@@ -66,16 +64,21 @@
         暂无项目。
       </div>
     </div>
-
-    <div id="stockDashboardView" class="stock-dashboard-view" aria-hidden="true">
-      <div id="stockWatchList" class="stock-watch-list">
-        <div class="stock-watch-header">
-          <button id="addStockBtn" class="add-stock-btn" title="添加股票">+</button>
-        </div>
-        <div id="stockList" class="stock-list">
-          <!-- Stock items will be inserted here -->
-        </div>
+    
+    <div id="notesView" class="notes-view" aria-hidden="true">
+      <div class="notes-toolbar">
+        <button id="notesPrevBtn" class="project-toolbar-btn">&lt;</button>
+        <div id="notesDateDisplay" class="current-date-display"></div>
+        <button id="notesNextBtn" class="project-toolbar-btn">&gt;</button>
       </div>
+      <div class="notes-input-section">
+        <input type="text" id="noteInput" class="note-input" placeholder="Add a bullet point" autocomplete="off">
+        <button id="noteAddBtn" class="action-btn note-add-btn">Add</button>
+      </div>
+      <ul id="notesList" class="notes-list">
+        <!-- Notes items rendered here -->
+      </ul>
+      <div id="notesEmptyState" class="empty-state">No notes for this day.</div>
     </div>
     
     <div class="author-info">by XH/OC</div>
